@@ -1,0 +1,62 @@
+[tool.poetry]
+name = "dl-training-energy-estimation"
+version = "0.1.0"
+description = ""
+authors = ["Santiago del Rey Juarez <santiago.del.rey@upc.edu>"]
+license = "Apache-2.0"
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.11"
+tensorflow = "=2.14.1"
+opencv-python = "<4.10"
+mlflow = "<3.0"
+pysftp = "<0.3"
+psutil = "<6.0"
+numpy = "<1.27"
+matplotlib = "<3.9"
+seaborn = "<0.14"
+statsmodels = "<0.15"
+pingouin = "<0.6"
+scikit-posthocs = "<0.10"
+cliffs-delta = "<=1.0.0"
+tensorflow-datasets = "<5.0"
+pandas = {extras = ["parquet"], version = "<=2.3"}
+scipy = "<1.12"
+tqdm = "<4.67"
+pyyaml = "<6.1"
+python-dotenv = "<1.1"
+typeguard = "<4.3"
+stumpy = "<1.13"
+tslearn = "<0.7"
+scikit-learn = "<1.6"
+joblib = "^1.4.2"
+flask = "^3.0.3"
+ydata-profiling = {extras = ["notebook"], version = "<4.9"}
+
+[tool.poetry.group.dev.dependencies]
+isort = "<5.15"
+black = {extras = ["jupyter"], version = "<25.0"}
+deptry = "<0.17"
+jupyter = "<=1.0.0"
+ipympl = "<0.10"
+pylint = "<3.3"
+pre-commit = "<3.8"
+tensorboard = "<2.15"
+dvc = "^3.50.1"
+
+[tool.isort]
+profile = "black"
+
+[tool.black]
+line-length=120
+
+[tool.pylint]
+max-line-length = 120
+ignored-modules = ["tensorflow"]
+init-hook = "import sys; sys.path.append('.')"
+
+[build-system]
+requires = ["poetry-core>=1.2.0"]
+build-backend = "poetry.core.masonry.api"

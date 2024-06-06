@@ -1,0 +1,26 @@
+MLFLOW_ENABLED: false
+REPETITIONS: 30
+WARMUP_TIME: 10 # In minutes
+MEASURING_INTERVAL: 1000 #Miliseconds
+COOLDOWN: 5 # In minutes
+COOLDOWN_EVERY: 1 # Number of experiments between cooldowns
+EXCLUDE_DATASETS:
+  - "chesslive"
+  - "food101"
+  - "cifar10"
+EXCLUDE_ARCHITECTURES:
+  - "resnet50"
+  - "vgg16"
+  - "xception"
+  - "nasnet_mobile"
+  - "mobilenet_v2"
+  - "inception_resnet_v2"
+INPUT_SIZES:
+  - 64
+  - 128
+  - 224
+BATCH_SIZES:
+  - 32
+  - 64
+  - 256
+VARIABLES_COMBINATIONS: "variables-combinations-experiment-2.csv"

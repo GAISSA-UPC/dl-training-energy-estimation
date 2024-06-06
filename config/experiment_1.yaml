@@ -1,0 +1,21 @@
+MLFLOW_ENABLED: false
+INITIAL_EPOCHS: 0
+FT_EPOCHS: 150
+REPETITIONS: 30
+WARMUP_TIME: 10
+MEASURING_INTERVAL: 1000 #Miliseconds
+COOLDOWN: 5 # In minutes
+COOLDOWN_EVERY: 1 # Number of experiments between cooldowns
+EXCLUDE_DATASETS:
+  - "food101"
+  - "cifar10"
+  - "caltech101"
+  - "stanford_dogs"
+EXCLUDE_ARCHITECTURES:
+  - "inception_v3"
+  - "inception_resnet_v2"
+INPUT_SIZES:
+  - 128
+BATCH_SIZES:
+  - 32
+VARIABLES_COMBINATIONS: "variables-combinations-experiment-1.csv"

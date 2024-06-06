@@ -1,0 +1,5 @@
+outs:
+- md5: ab50f97472c37b9a535f1f8521db8ec8
+  size: 87335862
+  hash: md5
+  path: dl-training-energy-consumption-dataset.html

@@ -1,0 +1,3 @@
+Best model: kernel-ridge-regression-power-estimator
+RMSE for average power (W): 8.0575888785083
+RMSE for final target (kJ): 27.625215663506648

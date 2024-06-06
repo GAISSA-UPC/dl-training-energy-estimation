@@ -1,0 +1,15 @@
+# Read experiment configuration
+from src.environment import CONFIG_FILE, ROOT
+from src.utils import read_config
+
+cfg = read_config(ROOT / "config" / CONFIG_FILE)
+REPETITIONS = cfg["REPETITIONS"]
+WARMUP_TIME = cfg["WARMUP_TIME"]
+COOLDOWN = cfg["COOLDOWN"]
+COOLDOWN_EVERY = cfg["COOLDOWN_EVERY"]
+MEASURING_INTERVAL = cfg["MEASURING_INTERVAL"]
+MLFLOW_ENABLED = cfg["MLFLOW_ENABLED"]
+EXCLUDE_DATASETS = cfg["EXCLUDE_DATASETS"]
+EXCLUDE_ARCHITECTURES = cfg["EXCLUDE_ARCHITECTURES"]
+
+MINUTES_TO_SECONDS = 60

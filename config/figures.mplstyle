@@ -1,0 +1,9 @@
+
+font.family : "serif"
+font.serif : "Times New Roman"
+font.weight : "bold"
+font.size : 16
+figure.autolayout : "true"
+axes.grid : "true"
+scatter.edgecolors : "black"
+legend.fancybox : "true"

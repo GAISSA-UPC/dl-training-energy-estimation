@@ -1,0 +1,12 @@
+start_time,architecture,dataset,input_size,batch_size,return_code
+2023-11-20 17:18:35,inception_v3,caltech101,128,64,0
+2023-11-20 17:32:30,inception_v3,stanford_dogs,128,32,0
+2023-11-20 17:56:44,inception_v3,caltech101,64,64,0
+2023-11-20 18:05:13,inception_v3,caltech101,128,32,0
+2023-11-20 18:18:03,inception_v3,caltech101,128,64,0
+2023-11-20 18:30:34,inception_v3,caltech101,64,32,0
+2023-11-20 18:40:29,inception_v3,stanford_dogs,64,64,0
+2023-11-20 18:53:06,inception_v3,caltech101,128,32,0
+2023-11-20 19:08:15,inception_v3,stanford_dogs,64,256,0
+2023-11-20 19:18:04,inception_v3,caltech101,224,32,0
+2023-11-20 19:46:30,inception_v3,stanford_dogs,224,256,0
