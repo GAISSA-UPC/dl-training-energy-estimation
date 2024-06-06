@@ -10,7 +10,7 @@ packages = [{include = "src"}]
 [tool.poetry.dependencies]
 python = ">=3.9,<3.11"
 tensorflow = "=2.14.1"
-opencv-python = "<4.10"
+opencv-python = "<4.11"
 mlflow = "<3.0"
 pysftp = "<0.3"
 psutil = "<6.0"
