@@ -1,7 +1,7 @@
 # dl-energy-estimation
 Replication package for the paper "How to use model architecture and training environment to estimate the energy consumption of DL training".
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.10455716.svg)](https://doi.org/10.5281/zenodo.10455716)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.11505892.svg)](https://doi.org/10.5281/zenodo.11505892)
 
 ## Set up the environment
 ### Installing dependencies
@@ -83,7 +83,9 @@ The training history and the model will be saved following the same rules as the
 We do not share the Chesslive dataset. However, you can use the Caltech101 and Stanford Dogs datasets to train the Inception V3 model. To use this datasets with the rest of the models you can extend each of the models' base class located in [src/models/dl](src/models/dl/) and adding it to the [model_factory](src/models/dl/model_factory.py).
 
 ## Collected data
-All the data collected during the experiment can be found in the [data/metrics](data/metrics) folder. The data is organized in the following structure:
+All the data collected and produced during the study can be found in the `data.zip` file in the [Relseases](https://github.com/GAISSA-UPC/dl-training-energy-estimation/releases) section.
+
+The folder is expected to be extracted at the root of the project and the metrics collected can be found inside the `data/metrics` folder. The data is organized in the following structure:
 
 ```
 .
@@ -104,4 +106,4 @@ The data analysis is done using [Jupyter Notebooks](https://jupyter.org/). You c
 ## License
 The software under this project is licensed under the terms of the Apache 2.0 license. See the [LICENSE](LICENSE) file for more information.
 
-The data used in this project is licensed under the terms of the [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license. See the [LICENSE](data/LICENSE) file for more information.
+The data used in this project is licensed under the terms of the [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) license. See the LICENSE in the `data/LICENSE` file for more information.
