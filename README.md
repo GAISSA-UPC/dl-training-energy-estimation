@@ -1,7 +1,7 @@
 # dl-energy-estimation
 Replication package for the paper "How to use model architecture and training environment to estimate the energy consumption of DL training".
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.11505892.svg)](https://doi.org/10.5281/zenodo.11505892)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.11505891.svg)](https://doi.org/10.5281/zenodo.11505891)
 
 ## Set up the environment
 ### Installing dependencies
