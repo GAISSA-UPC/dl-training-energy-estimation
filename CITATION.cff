@@ -1,0 +1,32 @@
+# This CITATION.cff file was generated with cffinit.
+# Visit https://bit.ly/cffinit to generate yours today!
+
+cff-version: 1.2.0
+title: >-
+  How to use model architecture and training environment to
+  estimate the energy consumption of DL training -
+  Replication package
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Santiago
+    family-names: del Rey
+    email: santiago.del.rey@upc.edu
+    affiliation: Universitat Politècnica de Catalunya
+    orcid: 'https://orcid.org/0000-0003-4979-414X'
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.11505891
+repository-code: >-
+  https://github.com/GAISSA-UPC/dl-training-energy-estimation
+keywords:
+  - Green AI
+  - energy efficiency
+  - neural networks
+  - software engineering
+  - sustainable computing
+license: Apache-2.0
+version: v1.0
+date-released: '2024-06-06'

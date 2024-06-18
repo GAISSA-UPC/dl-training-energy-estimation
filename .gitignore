@@ -5,6 +5,7 @@
 /logs/
 profiling.*
 !out/figures/
+data.zip
 
 ### VisualStudioCode template
 .vscode/*
