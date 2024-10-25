@@ -9,7 +9,7 @@ packages = [{include = "src"}]
 
 [tool.poetry.dependencies]
 python = ">=3.9,<3.11"
-tensorflow = "=2.14.1"
+tensorflow = {version = "2.16.1", extras = ["and-cuda"]}
 opencv-python = "<4.10"
 mlflow = "<3.0"
 pysftp = "<0.3"
@@ -43,7 +43,7 @@ jupyter = "<=1.0.0"
 ipympl = "<0.10"
 pylint = "<3.3"
 pre-commit = "<3.8"
-tensorboard = "<2.15"
+tensorboard = "<2.18"
 dvc = "^3.50.1"
 
 [tool.isort]

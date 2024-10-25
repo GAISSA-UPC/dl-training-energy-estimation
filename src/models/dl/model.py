@@ -177,7 +177,7 @@ class BaseModel(ABC):
         self.BASE_MODEL.trainable = False
 
         inputs = tf.keras.Input(shape=self.INPUT_SHAPE)
-        x = tf.cast(inputs, tf.float32)
+        x = tf.keras.ops.cast(inputs, "float32")
         x = self.PREPROCESSING_LAYER(x)
         x = self.BASE_MODEL(x, training=False)
         predictions = self.CLASSIFIER(x)
