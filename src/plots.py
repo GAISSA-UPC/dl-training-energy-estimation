@@ -107,7 +107,18 @@ bar_width = 0.5
 multiplier = 0
 hatches = {"Local N": "//", "Local ML": "..", "Cloud": "|"}
 
-fig, ax = plt.subplots(layout="tight", figsize=(10, 5))
+fig, ax = plt.subplots(layout="tight", figsize=(15, 10))
+
+ax.fill_between(
+    [0, 1], y[0] - bar_width, y[-2] + bar_width * 3.2, color="lightgray", alpha=0.5
+)
+ax.fill_between(
+    [0, 1],
+    y[-2] + bar_width * 3.8,
+    y[-1] + bar_width * 3.2,
+    color="darkgray",
+    alpha=0.5,
+)
 
 for training_environment in TRAIN_STRATEGIES:
     energy = energy_medians.query(
@@ -125,7 +136,7 @@ for training_environment in TRAIN_STRATEGIES:
             hatch=hatches[training_environment],
             color="green",
         )
-        ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=8)
+        ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=12)
         vgg16_energy = energy.query("`architecture` == 'VGG16'")["energy"].values[0]
         rects = ax.barh(
             y=y[-1] + offset,
@@ -134,7 +145,7 @@ for training_environment in TRAIN_STRATEGIES:
             hatch=hatches[training_environment],
             color="red",
         )
-        ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=8)
+        ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=12)
         remaining_energy = energy.query(
             "`architecture` not in ['MobileNet V2', 'VGG16']"
         )["energy"].values
@@ -155,11 +166,12 @@ for training_environment in TRAIN_STRATEGIES:
             hatch=hatches[training_environment],
             color="gray",
         )
-    ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=8)
+    ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=12)
     multiplier += 1
 
+
 ax.set_xlabel("Median energy consumption (J/image)")
-ax.set_xlim(0, 0.5)
+ax.set_xlim(0, 1)
 ax.set_yticks(y + bar_width, architectures)
 ax.invert_yaxis()
 handles, labels = ax.get_legend_handles_labels()
