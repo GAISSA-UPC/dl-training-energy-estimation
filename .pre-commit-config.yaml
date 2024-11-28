@@ -8,18 +8,12 @@ repos:
         - id: end-of-file-fixer
         - id: check-yaml
         - id: check-added-large-files
-    - repo: https://github.com/PyCQA/autoflake
-      rev: v2.3.1
+    - repo: https://github.com/astral-sh/ruff-pre-commit
+      # Ruff version.
+      rev: v0.8.0
       hooks:
-        - id: autoflake
-          args: [--remove-all-unused-imports, --in-place]
-    - repo: https://github.com/pycqa/isort
-      rev: 5.13.2
-      hooks:
-        - id: isort
-          name: isort (python)
-    # Using this mirror lets us use mypyc-compiled black, which is about 2x faster
-    - repo: https://github.com/psf/black-pre-commit-mirror
-      rev: 24.4.2
-      hooks:
-        - id: black-jupyter
+        # Run the linter.
+        - id: ruff
+          args: [ --fix ]
+        # Run the formatter.
+        - id: ruff-format
