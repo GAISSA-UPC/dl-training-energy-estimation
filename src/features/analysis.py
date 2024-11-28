@@ -9,6 +9,7 @@ import seaborn as sns
 import statsmodels.api as sm
 import stumpy
 from matplotlib import pyplot as plt
+from matplotlib.axes import Axes
 from matplotlib.patches import Rectangle
 from scipy import stats
 from tqdm import tqdm
@@ -26,7 +27,9 @@ from src.features.preprocessing import (
 ALPHA = 0.05
 
 
-def test_normality(x, group=None, ax: matplotlib.axes.Axes = None, figsize: Tuple[int, int] = (5, 5)):
+def test_normality(
+    x, group=None, ax: matplotlib.axes.Axes = None, figsize: Tuple[int, int] = (5, 5)
+):
     """
     Test the normality of a group of samples.
 
@@ -218,19 +221,19 @@ def boxplot(
 
 def barplot(
     data,
-    x=None,
-    y=None,
-    xlabel=None,
-    ylabel=None,
-    title=None,
-    hue=None,
-    hue_order=None,
-    errorbar=None,
-    estimator="mean",
-    figname=None,
-    figsize=(5, 5),
+    x: str | None = None,
+    y: str | None = None,
+    xlabel: str | None = None,
+    ylabel: str | None = None,
+    title: str | None = None,
+    hue: str | None = None,
+    hue_order: list | None = None,
+    errorbar: str | None = None,
+    estimator: str = "mean",
+    figname: str | None = None,
+    figsize: Tuple[int, int] = (5, 5),
     barlabel=False,
-    ax=None,
+    ax: Axes | None = None,
 ):
     """
     Create a barplot using seaborn.
@@ -297,9 +300,12 @@ def barplot(
         estimator=estimator,
     )
     ax.yaxis.grid(True)
-    ax.set_xlabel(xlabel)
-    ax.set_ylabel(ylabel)
-    ax.set_title(title)
+    if xlabel is not None:
+        ax.set_xlabel(xlabel)
+    if ylabel is not None:
+        ax.set_ylabel(ylabel)
+    if title is not None:
+        ax.set_title(title)
 
     if barlabel:
         for container in ax.containers:
@@ -311,15 +317,24 @@ def barplot(
 
 
 def print_improvement(dataframe, metric):
-    median_values = dataframe.groupby(["architecture", "training environment"], as_index=False)[metric].median()
-    median_values["combination"] = median_values.architecture + " - " + median_values["training environment"]
-    tmp = pd.DataFrame(columns=median_values.combination.unique(), index=median_values.combination.unique())
+    median_values = dataframe.groupby(
+        ["architecture", "training environment"], as_index=False
+    )[metric].median()
+    median_values["combination"] = (
+        median_values.architecture + " - " + median_values["training environment"]
+    )
+    tmp = pd.DataFrame(
+        columns=median_values.combination.unique(),
+        index=median_values.combination.unique(),
+    )
 
     # Iterate over all combinations of architectures and training environments and calculate the relative difference in energy consumption. Then get the maximum and minimum values.
     for i, row in median_values.iterrows():
         for j, row2 in median_values.iterrows():
             if i != j:
-                tmp.loc[row.combination, row2.combination] = (row[metric] - row2[metric]) / row[metric]
+                tmp.loc[row.combination, row2.combination] = (
+                    row[metric] - row2[metric]
+                ) / row[metric]
             else:
                 tmp.loc[row.combination, row2.combination] = 0.0
 
@@ -346,7 +361,9 @@ def plot_gpu_power(run, epoch_ends):
 
 def plot_regime_change(run, epoch_ends, cac, regime_change, breaking_epoch):
     power = run.sort_values(by="timestamp")["gpu_power_draw"]
-    fig, axs = plt.subplots(2, 1, figsize=(15, 8), sharex=True, gridspec_kw={"hspace": 0})
+    fig, axs = plt.subplots(
+        2, 1, figsize=(15, 8), sharex=True, gridspec_kw={"hspace": 0}
+    )
     fig.suptitle(
         f"Power profile for run in {run['train_environment'].iloc[0]} with {run['architecture'].iloc[0]} on {run['dataset'].iloc[0]}"
     )
@@ -359,17 +376,31 @@ def plot_regime_change(run, epoch_ends, cac, regime_change, breaking_epoch):
                 width = row["end_time"] - run["timestamp"].min()
             else:
                 width = row["end_time"] - epoch_ends.iloc[i - 1]["end_time"]
-            rect = Rectangle((row["end_time"], 0), -width, max_power + 10, facecolor="green", alpha=0.2)
+            rect = Rectangle(
+                (row["end_time"], 0),
+                -width,
+                max_power + 10,
+                facecolor="green",
+                alpha=0.2,
+            )
             axs[0].add_patch(rect)
-            axs[0].axvline(row["end_time"], ymax=max_power, color="green", linestyle="--")
+            axs[0].axvline(
+                row["end_time"], ymax=max_power, color="green", linestyle="--"
+            )
         else:
-            axs[0].axvline(row["end_time"], ymax=max_power, color="grey", linestyle="--")
+            axs[0].axvline(
+                row["end_time"], ymax=max_power, color="grey", linestyle="--"
+            )
 
     axs[1].plot(run.iloc[: cac.shape[0]]["timestamp"], cac, color="orange")
-    axs[1].axvline(x=run.iloc[regime_change].timestamp, linestyle="dashed", color="blue")
+    axs[1].axvline(
+        x=run.iloc[regime_change].timestamp, linestyle="dashed", color="blue"
+    )
 
 
-def find_stabilizing_point(runs, metrics: pd.DataFrame, m: int, L: int, save: bool = False):
+def find_stabilizing_point(
+    runs, metrics: pd.DataFrame, m: int, L: int, save: bool = False
+):
     """
     Find the power consumption stabilizing point for a set of runs.
 
@@ -396,7 +427,8 @@ def find_stabilizing_point(runs, metrics: pd.DataFrame, m: int, L: int, save: bo
     regimes = np.zeros((runs.shape[0], 3), dtype=object)
     profiles = {}
     for i, (run_id, run) in tqdm(
-        enumerate(metrics.loc[metrics["run_id"].isin(runs)].groupby("run_id")), total=len(runs)
+        enumerate(metrics.loc[metrics["run_id"].isin(runs)].groupby("run_id")),
+        total=len(runs),
     ):
         sorted_run = run.sort_values(by="timestamp")
         mp = stumpy.stump(sorted_run.gpu_power_draw.values, m)
@@ -416,11 +448,17 @@ def find_stabilizing_point(runs, metrics: pd.DataFrame, m: int, L: int, save: bo
         elapsed_time = run.iloc[regime_locations[0]].elapsed_time
         regimes[i] = [run_id, elapsed_time, stabilizing_epoch]
 
-    regimes_df = pd.DataFrame(regimes, columns=["run_id", "elapsed time", "stabilizing epoch"])
+    regimes_df = pd.DataFrame(
+        regimes, columns=["run_id", "elapsed time", "stabilizing epoch"]
+    )
     regimes_df["elapsed time"] = pd.to_numeric(regimes_df["elapsed time"])
     if save:
-        regimes_df.to_parquet(DATA_DIR / "analysis" / "processed" / "regimes.gzip", compression="gzip")
-        with open(DATA_DIR / "analysis" / "processed" / "cloud_inception_mps.pkl", "wb") as f:
+        regimes_df.to_parquet(
+            DATA_DIR / "analysis" / "processed" / "regimes.gzip", compression="gzip"
+        )
+        with open(
+            DATA_DIR / "analysis" / "processed" / "cloud_inception_mps.pkl", "wb"
+        ) as f:
             pickle.dump(profiles, f)
     return regimes_df, profiles
 
@@ -452,12 +490,16 @@ def build_energy_estimation(mean_power_draw, stabilizing_epoch):
         ],
     ).sort_values(by=["start time"])
 
-    metrics = pd.read_parquet(os.path.join(METRICS_DIR, "interim", "dl-training-profiling-dataset.gzip"))
+    metrics = pd.read_parquet(
+        os.path.join(METRICS_DIR, "interim", "dl-training-profiling-dataset.gzip")
+    )
     metrics.query("`run_id` in @aggregated_metrics['run_id'].values", inplace=True)
     metrics["elapsed_time"] = metrics["elapsed_time"] / np.timedelta64(1, "s")
     metrics["epoch"] = metrics["epoch"].astype("int")
 
-    epoch_energy_df = pd.read_parquet(METRICS_DIR / "processed" / "clean-dl-epoch-energy-consumption-dataset.gzip")
+    epoch_energy_df = pd.read_parquet(
+        METRICS_DIR / "processed" / "clean-dl-epoch-energy-consumption-dataset.gzip"
+    )
     epoch_energy_df["epoch"] = epoch_energy_df["epoch"].astype("int")
 
     energy_estimation = pd.DataFrame.from_dict(mean_power_draw, orient="columns")
@@ -478,11 +520,15 @@ def build_energy_estimation(mean_power_draw, stabilizing_epoch):
     )
 
     stable_energy["initial energy (J)"] = (
-        epoch_energy_df.query("`epoch` < @stabilizing_epoch").groupby(grouping_features)["total energy (kJ)"].sum()
+        epoch_energy_df.query("`epoch` < @stabilizing_epoch")
+        .groupby(grouping_features)["total energy (kJ)"]
+        .sum()
         * KJOULES_TO_JOULES
     )
     stable_energy["total epochs"] = metrics.groupby("run_id")["epoch"].nunique()
-    stable_energy["energy (kJ)"] = stable_epochs_energy.groupby(grouping_features)["total energy (kJ)"].sum()
+    stable_energy["energy (kJ)"] = stable_epochs_energy.groupby(grouping_features)[
+        "total energy (kJ)"
+    ].sum()
 
     stable_energy.reset_index(inplace=True)
     stable_energy.rename(
@@ -524,18 +570,28 @@ def build_energy_estimation(mean_power_draw, stabilizing_epoch):
         on="run_id",
         how="inner",
     )
-    energy_estimation["total energy (kJ)"] = energy_estimation["total energy (MJ)"] * MJOULES_TO_KJOULES
-    energy_estimation["total gpu usage (%)"] = energy_estimation["total gpu usage (%)"] / 100
+    energy_estimation["total energy (kJ)"] = (
+        energy_estimation["total energy (MJ)"] * MJOULES_TO_KJOULES
+    )
+    energy_estimation["total gpu usage (%)"] = (
+        energy_estimation["total gpu usage (%)"] / 100
+    )
 
     # energy = window average power * training duration
     energy_estimation["estimated energy (kJ) (online power-based)"] = (
-        (energy_estimation["mean gpu power draw"].fillna(0) + energy_estimation["mean ram power draw"].fillna(0))
+        (
+            energy_estimation["mean gpu power draw"].fillna(0)
+            + energy_estimation["mean ram power draw"].fillna(0)
+        )
         * energy_estimation["training duration (h)"]
         * HOURS_TO_SECONDS
         * JOULES_TO_KJOULES
     )
     energy_estimation["estimated total energy (kJ) (online power-based)"] = (
-        (energy_estimation["mean gpu power draw"].fillna(0) + energy_estimation["mean ram power draw"].fillna(0))
+        (
+            energy_estimation["mean gpu power draw"].fillna(0)
+            + energy_estimation["mean ram power draw"].fillna(0)
+        )
         * energy_estimation["total training duration (h)"]
         * HOURS_TO_SECONDS
         * JOULES_TO_KJOULES
@@ -548,14 +604,16 @@ def build_energy_estimation(mean_power_draw, stabilizing_epoch):
         * JOULES_TO_KJOULES
     )
     energy_estimation["estimated total energy (kJ) (online epoch-energy-based)"] = (
-        energy_estimation["energy (J)"] * ((energy_estimation["n_epochs"]) / energy_estimation["window size"])
+        energy_estimation["energy (J)"]
+        * ((energy_estimation["n_epochs"]) / energy_estimation["window size"])
         + energy_estimation["initial energy (J)"]
     ) * JOULES_TO_KJOULES
 
     # energy = (TDP * gpu usage + (total ram * C)) * training duration
     energy_estimation["estimated energy (kJ) (GA)"] = (
         (
-            energy_estimation["max power limit (W)"] * energy_estimation["gpu usage (%)"]
+            energy_estimation["max power limit (W)"]
+            * energy_estimation["gpu usage (%)"]
             + energy_estimation["total ram (GB)"] * 0.3725
         )
         * energy_estimation["training duration (h)"]
@@ -564,7 +622,8 @@ def build_energy_estimation(mean_power_draw, stabilizing_epoch):
     )
     energy_estimation["estimated total energy (kJ) (GA)"] = (
         (
-            energy_estimation["max power limit (W)"] * energy_estimation["total gpu usage (%)"]
+            energy_estimation["max power limit (W)"]
+            * energy_estimation["total gpu usage (%)"]
             + energy_estimation["total ram (GB)"] * 0.3725
         )
         * energy_estimation["total training duration (h)"]
