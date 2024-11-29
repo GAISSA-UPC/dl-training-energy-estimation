@@ -110,13 +110,14 @@ hatches = {"Local N": "//", "Local ML": "..", "Cloud": "|"}
 fig, ax = plt.subplots(layout="tight", figsize=(15, 10))
 
 ax.fill_between(
-    [0, 1], y[0] - bar_width, y[-2] + bar_width * 3.2, color="lightgray", alpha=0.5
+    [0, 1.02], y[0] - bar_width, y[-2] + bar_width * 3.2, color="lightgray", alpha=0.5
 )
+
 ax.fill_between(
-    [0, 1],
+    [0, 1.02],
     y[-2] + bar_width * 3.8,
     y[-1] + bar_width * 3.2,
-    color="darkgray",
+    color="lightgray",
     alpha=0.5,
 )
 
@@ -124,14 +125,12 @@ for training_environment in TRAIN_STRATEGIES:
     energy = energy_medians.query(
         f"`training environment` == '{training_environment}'"
     ).sort_values(by="architecture", key=lambda x: x.map(architecture_order))
-    offset = bar_width * multiplier
+    offset = (bar_width + 0.05) * multiplier
     if training_environment == "Local ML":
-        mobilenet_v2_energy = energy.query("`architecture` == 'MobileNet V2'")[
-            "energy"
-        ].values[0]
+        best_local_ml = energy.query("`architecture` != 'VGG16'")["energy"].values
         rects = ax.barh(
-            y=0 + offset,
-            width=mobilenet_v2_energy,
+            y=y[:-1] + offset,
+            width=best_local_ml,
             height=bar_width,
             hatch=hatches[training_environment],
             color="green",
@@ -143,20 +142,30 @@ for training_environment in TRAIN_STRATEGIES:
             width=vgg16_energy,
             height=bar_width,
             hatch=hatches[training_environment],
-            color="red",
+            color="gray",
+            label=training_environment,
         )
         ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=12)
-        remaining_energy = energy.query(
-            "`architecture` not in ['MobileNet V2', 'VGG16']"
-        )["energy"].values
+    elif training_environment == "Cloud":
+        worst_cloud = energy.query("`architecture` != 'VGG16'")["energy"].values
         rects = ax.barh(
-            y=y[1 : len(energy) - 1] + offset,
-            width=remaining_energy,
+            y=y[:-1] + offset,
+            width=worst_cloud,
             height=bar_width,
-            label=training_environment,
             hatch=hatches[training_environment],
             color="gray",
+            label=training_environment,
         )
+        ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=12)
+        vgg16_energy = energy.query("`architecture` == 'VGG16'")["energy"].values[0]
+        rects = ax.barh(
+            y=y[-1] + offset,
+            width=vgg16_energy,
+            height=bar_width,
+            hatch=hatches[training_environment],
+            color="green",
+        )
+        ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=12)
     else:
         rects = ax.barh(
             y=y[: len(energy)] + offset,
@@ -166,25 +175,184 @@ for training_environment in TRAIN_STRATEGIES:
             hatch=hatches[training_environment],
             color="gray",
         )
-    ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=12)
+        ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=12)
     multiplier += 1
 
-
-ax.set_xlabel("Median energy consumption (J/image)")
-ax.set_xlim(0, 1)
-ax.set_yticks(y + bar_width, architectures)
+ax.set_xlabel("Median energy consumption (J/image)", fontsize=18)
+ax.set_yticks(y + bar_width, architectures, fontsize=18)
 ax.invert_yaxis()
 handles, labels = ax.get_legend_handles_labels()
 fig.legend(
     handles,
     labels,
     title="Training environment",
-    loc="upper center",
+    loc="lower center",
     ncols=3,
-    bbox_to_anchor=(0.5, 1.15),
+    bbox_to_anchor=(0.5, 0.98),
 )
 
 plt.savefig(
     os.path.join(SAVE_FIGS_DIR, f"energy-comparison-slide-verion.{FIGURES_FORMAT}"),
+    bbox_inches="tight",
+)
+
+fig, ax = plt.subplots(layout="tight", figsize=(15, 10))
+multiplier = 0
+
+ax.fill_between(
+    [0, 1.02],
+    y[0] - 0.8 * bar_width,
+    y[0] + bar_width * 2.8,
+    color="lightgray",
+    alpha=0.5,
+)
+
+f1_scores = analysis_df.groupby("architecture")["f1-score"].median()
+
+for training_environment in TRAIN_STRATEGIES:
+    energy = energy_medians.query(
+        f"`training environment` == '{training_environment}'"
+    ).sort_values(by="architecture", key=lambda x: x.map(architecture_order))
+    offset = (bar_width + 0.05) * multiplier
+    rects = ax.barh(
+        y=y[: len(energy)] + offset,
+        width=energy["energy"],
+        height=bar_width,
+        label=training_environment,
+        hatch=hatches[training_environment],
+        color="gray",
+    )
+    ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=12)
+    multiplier += 1
+
+ax.text(
+    0.95,
+    y[0] - bar_width,
+    "F1-score",
+    va="center",
+    ha="center",
+    fontsize=18,
+)
+
+ax.vlines(
+    f1_scores, y - 0.5 * bar_width, y + 2.5 * bar_width, color="black", linewidth=3
+)
+for i, f1_score in enumerate(f1_scores):
+    ax.text(
+        f1_score + 0.01,
+        y[i] + bar_width,
+        f"{f1_score:.2f}",
+        va="center",
+        ha="left",
+        fontsize=12,
+    )
+
+ax.set_xlabel("Median energy consumption (J/image)", fontsize=18)
+ax.set_yticks(y + bar_width, architectures, fontsize=18)
+ax.invert_yaxis()
+handles, labels = ax.get_legend_handles_labels()
+fig.legend(
+    handles,
+    labels,
+    title="Training environment",
+    loc="lower center",
+    ncols=3,
+    bbox_to_anchor=(0.5, 0.98),
+)
+
+plt.savefig(
+    os.path.join(
+        SAVE_FIGS_DIR, f"energy-f1-score-comparison-slide-verion.{FIGURES_FORMAT}"
+    ),
+    bbox_inches="tight",
+)
+
+
+fig, ax = plt.subplots(layout="tight", figsize=(15, 10))
+multiplier = 0
+
+for training_environment in TRAIN_STRATEGIES:
+    energy = energy_medians.query(
+        f"`training environment` == '{training_environment}'"
+    ).sort_values(by="architecture", key=lambda x: x.map(architecture_order))
+    offset = (bar_width + 0.05) * multiplier
+    if training_environment == "Local ML":
+        best_local_ml = energy.query("`architecture` != 'VGG16'")["energy"].values
+        rects = ax.barh(
+            y=y[:-1] + offset,
+            width=best_local_ml,
+            height=bar_width,
+            hatch=hatches[training_environment],
+            color="gray",
+            label=training_environment,
+        )
+        ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=12)
+        vgg16_energy = energy.query("`architecture` == 'VGG16'")["energy"].values[0]
+        rects = ax.barh(
+            y=y[-1] + offset,
+            width=vgg16_energy,
+            height=bar_width,
+            hatch=hatches[training_environment],
+            color="red",
+        )
+        ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=12)
+    elif training_environment == "Cloud":
+        worst_cloud = energy.query("`architecture` != 'VGG16'")["energy"].values
+        rects = ax.barh(
+            y=y[:-1] + offset,
+            width=worst_cloud,
+            height=bar_width,
+            hatch=hatches[training_environment],
+            color="gray",
+            label=training_environment,
+        )
+        ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=12)
+        vgg16_energy = energy.query("`architecture` == 'VGG16'")["energy"].values[0]
+        rects = ax.barh(
+            y=y[-1] + offset,
+            width=vgg16_energy,
+            height=bar_width,
+            hatch=hatches[training_environment],
+            color="red",
+        )
+        ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=12)
+    else:
+        rects = ax.barh(
+            y=y[0] + offset,
+            width=energy.query("architecture == 'MobileNet V2'")["energy"],
+            height=bar_width,
+            label=training_environment,
+            hatch=hatches[training_environment],
+            color="gray",
+        )
+        ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=12)
+        rects = ax.barh(
+            y=y[1] + offset,
+            width=energy.query("architecture == 'NASNet Mobile'")["energy"],
+            height=bar_width,
+            hatch=hatches[training_environment],
+            color="red",
+        )
+        ax.bar_label(rects, fmt="%.2f", label_type="edge", fontsize=12)
+    multiplier += 1
+
+
+ax.set_xlabel("Median energy consumption (J/image)", fontsize=18)
+ax.set_yticks(y + bar_width, architectures, fontsize=18)
+ax.invert_yaxis()
+handles, labels = ax.get_legend_handles_labels()
+fig.legend(
+    handles,
+    labels,
+    title="Training environment",
+    loc="lower center",
+    ncols=3,
+    bbox_to_anchor=(0.5, 0.98),
+)
+
+plt.savefig(
+    os.path.join(
+        SAVE_FIGS_DIR, f"energy-greedy-comparison-slide-verion.{FIGURES_FORMAT}"
+    ),
     bbox_inches="tight",
 )
