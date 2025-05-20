@@ -1,44 +1,77 @@
 [project]
 name = "dl-training-energy-estimation"
-version = "1.0"
-description = ""
+version = "0.1.0"
+description = "Replication package for the paper 'How to use model architecture and training environment to estimate the energy consumption of DL training.'"
 authors = ["Santiago del Rey Juarez <santiago.del.rey@upc.edu>"]
 licence = "Apache-2.0"
 readme = "README.md"
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10, <3.12"
 dependencies = [
     "cliffs-delta>=1.0.0",
+    "flask>=3.1.0",
+    "joblib>=1.4.2",
+    "loguru>=0.7.3",
     "matplotlib>=3.9.2",
     "mlflow>=2.18.0",
     "numpy>=1.26.4",
     "opencv-python>=4.10.0.84",
+    "pandas[parquet]>=2.2.3",
     "pingouin>=0.5.5",
     "psutil>=6.1.0",
     "pysftp>=0.2.9",
-    "scikit-posthocs>=0.11.0",
-    "statsmodels>=0.14.4",
-    "tensorflow-datasets<5.0",
-    "tensorflow==2.14.1",
-    "pandas[parquet]>=2.2.3",
-    "pyyaml>=6.0.2",
     "python-dotenv>=1.0.1",
-    "stumpy>=1.13.0",
-    "tslearn>=0.6.3",
+    "pyyaml>=6.0.2",
     "scikit-learn>=1.5.2",
-    "ydata-profiling[notebook]>=4.12.0",
-    "seaborn>=0.13.2",
-    "tqdm>=4.67.1",
+    "scikit-posthocs>=0.11.0",
     "scipy>=1.13.1",
-    "joblib>=1.4.2",
-    "flask>=3.1.0",
+    "seaborn>=0.13.2",
+    "statsmodels>=0.14.4",
+    "stumpy>=1.13.0",
+    "tensorflow==2.14.1",
+    "tensorflow-datasets>=4.9.8",
+    "tqdm>=4.67.1",
+    "tslearn>=0.6.3",
     "typeguard>=4.4.1",
+    "ydata-profiling[notebook]>=4.12.0",
 ]
 
 [dependency-groups]
 dev = [
-    "deptry>=0.21.1",
-    "ipympl>=0.9.4",
+    "deptry>=0.23.0",
+    "ipympl>=0.9.7",
     "jupyter>=1.1.1",
-    "pre-commit>=4.0.1",
-    "ruff>=0.8.0",
+    "pre-commit>=4.2.0",
+    "ruff>=0.11.10",
 ]
+
+[tool.ruff]
+line-length = 120
+src = ["src"]
+include = ["pyproject.toml", "src/**/*.py"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.ruff.lint]
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+    #Pylint
+    "PL",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+force-sort-within-sections = true

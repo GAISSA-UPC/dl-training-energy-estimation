@@ -1,0 +1,4 @@
+GPU:
+  MEM_LIMIT: 2048
+
+USE_CACHE: true

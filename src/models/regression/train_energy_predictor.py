@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from scipy import stats
 from sklearn.discriminant_analysis import StandardScaler
+from sklearn.inspection import permutation_importance
 from sklearn.metrics import root_mean_squared_error
 from sklearn.model_selection import train_test_split
 
@@ -13,8 +14,6 @@ from src.features.preprocessing import MJOULES_TO_KJOULES
 from src.models.regression.utils import Models, ModelTrainer
 
 RELEVANT_FEATURES = [
-    # "training environment",
-    # "architecture",
     "run_id",
     "batch size",
     "image size",
@@ -24,16 +23,11 @@ RELEVANT_FEATURES = [
     "validation size",
     "measured epochs",
     "GFLOPs",
-    # "total seen images",
     "energy (MJ)",  # Final target
 ]
 EPOCH_RELEVANT_FEATURES = [
     "run_id",
     "epoch",
-    # "epoch duration (s)",
-    # "epoch mean gpu power (W)",
-    # "epoch gpu energy (kJ)",
-    # "epoch ram energy (kJ)",
     "total energy (kJ)",  # Target
 ]
 
@@ -129,8 +123,20 @@ best_model_idx = results_df["rmse"].idxmin()
 best_model = models[results_df["rmse"].idxmin()]
 
 if not results_df.loc[best_model_idx, "has initial epochs"]:
-    X_test = X_test_without_initial_epochs
-    y_test = y_test_without_initial_epochs
+    X_test = X_test
+    y_test = y_stable.loc[y_test.index]
+
+result = permutation_importance(best_model, X_test, y_test, n_repeats=10, random_state=42, n_jobs=2)
+
+forest_importances = pd.Series(result.importances_mean, index=X_test.columns)
+
+fig, ax = plt.subplots(figsize=(10, 5))
+forest_importances.plot.barh(xerr=result.importances_std, ax=ax)
+ax.set_title("Feature importances using permutation on full model")
+ax.set_ylabel("Mean accuracy decrease")
+fig.tight_layout()
+plt.savefig(FIGURES_DIR / "energy-consumption-estimator-feature-importance-permutation.png")
+
 
 y_pred = best_model.predict(X_test)
 energy_pred = y_pred * data.loc[X_test.index]["measured epochs"]
