@@ -1,8 +1,10 @@
 import re
 
+from loguru import logger
 import matplotlib.pyplot as plt
 import pandas as pd
 from scipy import stats
+from sklearn.inspection import permutation_importance
 from sklearn.metrics import root_mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -17,9 +19,6 @@ from src.features.preprocessing import (
 from src.models.regression.utils import Models, ModelTrainer
 
 RELEVANT_FEATURES = [
-    # "training environment",
-    # "architecture",
-    # "run_id",
     "batch size",
     "image size",
     "gpu model",
@@ -28,17 +27,16 @@ RELEVANT_FEATURES = [
     "validation size",
     "training duration (h)",
     "GFLOPs",
-    # "total seen images",
     "average gpu power (W)",  # Target
     "energy (MJ)",  # Final target
 ]
 
-print("Loading data...")
+logger.info("Loading data...")
 data = pd.read_parquet(
     METRICS_DIR / "processed" / "clean-dl-training-energy-consumption-dataset.gzip", columns=RELEVANT_FEATURES
 )
 
-print("Preprocessing data...")
+logger.info("Preprocessing data...")
 # Split image size into image height and image width
 data["image height"] = data["image size"].apply(lambda x: int(re.findall(r"\d+", x)[0]))
 data["image width"] = data["image size"].apply(lambda x: int(re.findall(r"\d+", x)[1]))
@@ -88,6 +86,17 @@ models = results["model"]
 
 best_model_idx = results_df["rmse"].idxmin()
 best_model = models[best_model_idx]
+
+result = permutation_importance(best_model, X_test, y_test, n_repeats=10, random_state=42, n_jobs=2)
+
+forest_importances = pd.Series(result.importances_mean, index=X_test.columns)
+
+fig, ax = plt.subplots(figsize=(10, 5))
+forest_importances.plot.barh(xerr=result.importances_std, ax=ax)
+ax.set_title("Feature importances using permutation on full model")
+ax.set_ylabel("Mean accuracy decrease")
+fig.tight_layout()
+plt.savefig(FIGURES_DIR / "average-power-estimator-feature-importance-permutation.png")
 
 y_pred = best_model.predict(X_test)
 energy_pred = y_pred * data.loc[X_test.index]["training duration (h)"] * HOURS_TO_SECONDS

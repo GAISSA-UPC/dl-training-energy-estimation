@@ -6,7 +6,7 @@ Replication package for the paper "How to use model architecture and training en
 ## Set up the environment
 ### Installing dependencies
 Before executing the code, you must first install the required dependencies.
-We use [Poetry](https://python-poetry.org/docs/) to manage the dependencies.
+We use [uv](https://docs.astral.sh/uv/) to manage the dependencies.
 
 If you want to use any other dependency manager, you can look at the [pyproject.toml](pyproject.toml) file for the required dependencies.
 
