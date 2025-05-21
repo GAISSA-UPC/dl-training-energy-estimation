@@ -1,8 +1,10 @@
 font.family : "serif"
 font.serif : "Times New Roman"
 font.weight : "bold"
-font.size : 16
+font.size : 18
 figure.autolayout : "true"
-axes.grid : "true"
+axes.grid : "false"
+axes.spines.right : "false"
+axes.spines.top : "false"
 scatter.edgecolors : "black"
 legend.fancybox : "true"
