@@ -1,24 +1,64 @@
+---
+title: "RQ1 and RQ2"
+output: html_notebook
+author: "Santiago del Rey"
+---
+
+## Load libraries
+```{r include=FALSE}
 library(dplyr)
 library(arrow)
 library(ARTool)
-library(car)
+```
 
-df <- read_parquet("clean-dl-training-energy-consumption-dataset.gzip") %>%
+## Load data
+We load the data from the parquet file. We filter out the `inception_v3` architecture and the `Local Normal User` training environment, as they are not relevant for our analysis. We also rename the `energy (MJ)` column to `energy` for convenience.
+```{r}
+df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
   filter(architecture != "inception_v3" & `training environment` != "Local Normal User") %>%
-  mutate(energy=`energy (MJ)`, training_environment= factor(`training environment`), architecture=factor(architecture))
+  mutate(
+    energy=`energy (MJ)`,
+    training_environment= factor(`training environment`),
+    base_model=factor(architecture),
+    subject=factor(case_when(
+            architecture == "mobilenet_v2" ~ "model1",
+            architecture == "nasnet_mobile" ~ "model2",
+            architecture == "resnet50" ~ "model3",
+            architecture == "xception" ~ "model4",
+            architecture == "vgg16" ~ "model5",
+          ))
+    )
+```
 
-head(df)
-
-m <- art(energy ~ training_environment*architecture, data=df)
-
+## Create the model
+We create a linear model with `energy` as the response variable and `training_environment` and `base_model` as predictors. We also include an error term for the `subject` variable to account for the fact that it is a random effect.
+```{r}
+m <- art(energy ~ training_environment*base_model+Error(subject), data=df)
 summary(m)
+```
 
+## Test normality of the residuals
+We use the Shapiro-Wilk test to check the normality of the residuals.
+```{r}
+resutls <- shapiro.test(residuals(m))
+
+if (resutls$p.value < 0.05) {
+  cat("The residuals are not normally distributed (p-value:", resutls$p.value, ")\n")
+} else {
+  cat("The residuals are normally distributed (p-value:", resutls$p.value, ")\n")
+}
+```
+
+```{r}
 anova(m)
+```
 
+```{r}
 art.con(m, "training_environment")
-art.con(m, "training_environment:architecture") %>%
+art.con(m, "training_environment:base_model") %>%
   summary() %>%
   mutate(sig = symnum(p.value, corr = FALSE, na = FALSE,
                       cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1),
                       symbols = c("***", "**", "*", ".", " ")
   ))
+```
