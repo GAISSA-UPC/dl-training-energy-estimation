@@ -6,9 +6,16 @@ author: "Santiago del Rey"
 
 ## Load libraries
 ```{r include=FALSE}
-library(dplyr)
 library(arrow)
+library(dplyr)
+library(lme4)
+library(lmerTest)      # p-values for lmer
+library(performance)   # check assumptions
+library(emmeans)       # post hoc tests
+library(car)
 library(ARTool)
+library(ggplot2)
+
 ```
 
 ## Load data
@@ -20,45 +27,90 @@ df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumpti
     energy=`energy (MJ)`,
     training_environment= factor(`training environment`),
     base_model=factor(architecture),
-    subject=factor(case_when(
-            architecture == "mobilenet_v2" ~ "model1",
-            architecture == "nasnet_mobile" ~ "model2",
-            architecture == "resnet50" ~ "model3",
-            architecture == "xception" ~ "model4",
-            architecture == "vgg16" ~ "model5",
-          ))
+    ) %>%
+    group_by(base_model, training_environment) %>%
+    mutate(
+      subject_id = factor(row_number()),
     )
 ```
 
-## Create the model
-We create a linear model with `energy` as the response variable and `training_environment` and `base_model` as predictors. We also include an error term for the `subject` variable to account for the fact that it is a random effect.
+## Create a linear mixed model
+We create a linear mixed model with `energy` as the response variable and `training_environment` and `base_model` as fixed effects. We also include an error term for the `subject` variable to account for the fact that it is a random effect.
 ```{r}
-m <- art(energy ~ training_environment*base_model+Error(subject), data=df)
-summary(m)
+model_lmm <- lmer(energy ~ base_model * training_environment + (1 | subject_id), data = df)
+summary(model_lmm)
 ```
 
-## Test normality of the residuals
+## Check assumptions
+We check the assumptions of the linear mixed model using the `performance` package. We check for normality of residuals, homoscedasticity, and independence of residuals.
+```{r}
+# QQ plot
+qqnorm(resid(model_lmm)); qqline(resid(model_lmm))
+
+# Residuals histogram
+hist(resid(model_lmm), main = "Residuals Histogram", xlab = "Residuals")
+
+# Residuals vs Fitted
+plot(fitted(model_lmm), resid(model_lmm), main = "Residuals vs Fitted", xlab = "Fitted", ylab = "Residuals")
+abline(h = 0, col = "red")
+```
+
+## Test normality of residuals
 We use the Shapiro-Wilk test to check the normality of the residuals.
 ```{r}
-resutls <- shapiro.test(residuals(m))
+normality_results <- shapiro.test(resid(model_lmm))  # If p < 0.05, consider transformation
+normality_results
+```
 
-if (resutls$p.value < 0.05) {
-  cat("The residuals are not normally distributed (p-value:", resutls$p.value, ")\n")
-} else {
-  cat("The residuals are normally distributed (p-value:", resutls$p.value, ")\n")
+```{r}
+if (normality_results$p.value < 0.05) {
+  cat("Residuals are not normally distributed. Consider transformation.\n")
 }
 ```
 
+## Fit a GLMM
+We fit a generalized linear mixed model (GLMM) with a Gamma distribution and a log link function. This is appropriate for positive continuous data like energy consumption.
 ```{r}
-anova(m)
+model_glmm <- glmer(energy ~ base_model * training_environment + (1 | subject_id), data = df, family = Gamma(link = "log"), control = glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5)))
+summary(model_glmm)
 ```
 
+Exponentiated coefficients of the GLMM give us the multiplicative effect of each predictor on the response variable.
 ```{r}
-art.con(m, "training_environment")
-art.con(m, "training_environment:base_model") %>%
-  summary() %>%
-  mutate(sig = symnum(p.value, corr = FALSE, na = FALSE,
-                      cutpoints = c(0, 0.001, 0.01, 0.05, 0.1, 1),
-                      symbols = c("***", "**", "*", ".", " ")
-  ))
+exp(fixef(model_glmm))
+```
+
+
+## Post hoc tests
+We use the `emmeans` package to perform post hoc tests on the linear mixed model. We test for differences in energy consumption between different training environments and base models.
+```{r}
+emm <- emmeans(model_glmm, ~ base_model * training_environment)
+plot(emm, comparisons = TRUE) +
+  theme_minimal()
+```
+
+
+Make pairwise comparisons between the estimated marginal means. We use Tukey's method for multiple comparisons.
+```{r}
+# Pairwise comparisons
+pairs(emm, simple = "base_model", adjust = "tukey")
+pairs(emm, simple = "training_environment", adjust = "tukey")
+```
+```{r}
+pwpp(emm, by = "training_environment", type = "response")
+```
+
+
+## Check for overdispersion
+We check for overdispersion in the GLMM using the Pearson chi-squared statistic. If the ratio of the Pearson chi-squared statistic to the residual degrees of freedom is greater than 1.5, we have overdispersion.
+```{r}
+overdisp_fun <- function(model) {
+  rdf <- df.residual(model)
+  rp <- residuals(model, type = "pearson")
+  Pearson.chisq <- sum(rp^2)
+  prat <- Pearson.chisq / rdf
+  pval <- pchisq(Pearson.chisq, df = rdf, lower.tail = FALSE)
+  c(chisq = Pearson.chisq, ratio = prat, rdf = rdf, p = pval)
+}
+overdisp_fun(model_glmm)
 ```
