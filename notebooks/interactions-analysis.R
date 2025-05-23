@@ -1,6 +1,12 @@
 library(arrow)
 library(dplyr)
-library(ARTool, pos = 2, lib.loc = NULL)
+library(lme4)
+library(lmerTest)      # p-values for lmer
+library(performance)   # check assumptions
+library(emmeans)       # post hoc tests
+library(car)
+library(ARTool)
+library(ggplot2)
 
 df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
   filter(architecture != "inception_v3" & `training environment` != "Local Normal User") %>%
@@ -8,39 +14,50 @@ df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-
     energy=`energy (MJ)`,
     training_environment= factor(`training environment`),
     base_model=factor(architecture),
-    subject=factor(case_when(
-            architecture == "mobilenet_v2" ~ "model_1",
-            architecture == "nasnet_mobile" ~ "model_2",
-            architecture == "resnet50" ~ "model_3",
-            architecture == "xception" ~ "model_4",
-            architecture == "vgg16" ~ "model_5",
-          ))
     ) %>%
-    group_by(subject, training_environment) %>%
-    sample_n(20)
+    group_by(base_model, training_environment) %>%
+    mutate(
+      subject_id = factor(row_number()),
+    )
 
-# Count number of observations per subject
-df %>%
-  group_by(subject) %>%
-  summarise(n = n()) %>%
-  arrange(desc(n))
-# Count number of observations per subject and training environment
-df %>%
-  group_by(subject, training_environment) %>%
-  summarise(n = n()) %>%
-  arrange(desc(n))
-# Count number of observations per subject and base model
-df %>%
-  group_by(subject, base_model) %>%
-  summarise(n = n()) %>%
-  arrange(desc(n))
-# Count number of observations per training environment and base model
-df %>%
-  group_by(training_environment, base_model) %>%
-  summarise(n = n()) %>%
-  arrange(desc(n))
 
-m <- art(energy ~ training_environment*base_model+Error(base_model), data=df)
-summary(m)
+model_lmm <- lmer(energy ~ base_model * training_environment + (1 | subject_id), data = df)
+summary(model_lmm)
 
-anova(m)
+# QQ plot
+qqnorm(resid(model_lmm)); qqline(resid(model_lmm))
+
+# Residuals histogram
+hist(resid(model_lmm), main = "Residuals Histogram", xlab = "Residuals")
+
+# Residuals vs Fitted
+plot(fitted(model_lmm), resid(model_lmm), main = "Residuals vs Fitted", xlab = "Fitted", ylab = "Residuals")
+abline(h = 0, col = "red")
+
+# Shapiro-Wilk test
+normality_results <- shapiro.test(resid(model_lmm))  # If p < 0.05, consider transformation
+
+# Comprehensive model checks
+check_model(model_lmm)
+
+if (normality_results$p.value < 0.05) {
+  cat("Residuals are not normally distributed. Consider transformation.\n")
+  df <- df %>% mutate(log_energy = log(energy + 1e-6))
+  model_lmm_log <- lmer(log_energy ~ base_model * training_environment + (1 | subject_id), data = df)
+  summary(model_lmm_log)
+  check_model(model_lmm_log)
+}
+
+emmeans(model_lmm, pairwise ~ base_model | training_environment)
+emmeans(model_lmm, pairwise ~ training_environment | base_model)
+
+# # Count number of observations per training environment and base model
+# df %>%
+#   group_by(training_environment, base_model) %>%
+#   summarise(n = n()) %>%
+#   arrange(desc(n))
+
+# m <- art(energy ~ training_environment*base_model, data=df)
+# summary(m)
+
+# anova(m)
