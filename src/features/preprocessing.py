@@ -5,8 +5,8 @@ This module contains the functions used to preprocess the collected data.
 import concurrent.futures
 import glob
 import os
-import re
 from pathlib import Path
+import re
 from typing import List, Union
 
 import mlflow
@@ -491,9 +491,9 @@ def build_analysis_dataset(metrics_file: Union[Path, None] = None, save_to_file:
     ] = "local-v2"
     analysis_df.replace(
         {
-            "local": "Local Normal User",
-            "local-v2": "Local ML Engineer",
-            "cloud": "Cloud",
+            "local": "Desktop Normal User",
+            "local-v2": "Desktop ML Engineer",
+            "cloud": "Server",
         },
         inplace=True,
     )
