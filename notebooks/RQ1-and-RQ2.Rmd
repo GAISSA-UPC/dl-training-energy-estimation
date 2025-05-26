@@ -9,29 +9,31 @@ author: "Santiago del Rey"
 library(arrow)
 library(dplyr)
 library(lme4)
-library(lmerTest)      # p-values for lmer
-library(performance)   # check assumptions
-library(emmeans)       # post hoc tests
+library(lmerTest) # p-values for lmer
+library(performance) # check assumptions
+library(emmeans) # post hoc tests
 library(car)
 library(ARTool)
+library(minpack.lm)
+library(boot)
 library(ggplot2)
-
 ```
 
 ## Load data
 We load the data from the parquet file. We filter out the `inception_v3` architecture and the `Local Normal User` training environment, as they are not relevant for our analysis. We also rename the `energy (MJ)` column to `energy` for convenience.
 ```{r}
 df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
-  filter(architecture != "inception_v3" & `training environment` != "Local Normal User") %>%
+  filter(architecture != "inception_v3" & `training environment` != "Desktop Normal User") %>%
   mutate(
-    energy=`energy (MJ)`,
-    training_environment= factor(`training environment`),
-    base_model=factor(architecture),
-    ) %>%
-    group_by(base_model, training_environment) %>%
-    mutate(
-      subject_id = factor(row_number()),
-    )
+    energy = (`energy (MJ)` * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
+    training_environment = factor(`training environment`),
+    base_model = factor(architecture),
+    gpu_usage = `gpu usage (%)`,
+  ) %>%
+  group_by(base_model, training_environment) %>%
+  mutate(
+    subject_id = factor(row_number()),
+  )
 ```
 
 ## Create a linear mixed model
@@ -45,7 +47,8 @@ summary(model_lmm)
 We check the assumptions of the linear mixed model using the `performance` package. We check for normality of residuals, homoscedasticity, and independence of residuals.
 ```{r}
 # QQ plot
-qqnorm(resid(model_lmm)); qqline(resid(model_lmm))
+qqnorm(resid(model_lmm))
+qqline(resid(model_lmm))
 
 # Residuals histogram
 hist(resid(model_lmm), main = "Residuals Histogram", xlab = "Residuals")
@@ -58,13 +61,13 @@ abline(h = 0, col = "red")
 ## Test normality of residuals
 We use the Shapiro-Wilk test to check the normality of the residuals.
 ```{r}
-normality_results <- shapiro.test(resid(model_lmm))  # If p < 0.05, consider transformation
+normality_results <- shapiro.test(resid(model_lmm)) # If p < 0.05, consider transformation
 normality_results
 ```
 
 ```{r}
 if (normality_results$p.value < 0.05) {
-  cat("Residuals are not normally distributed. Consider transformation.\n")
+  cat("Residuals are not normally distributed.\n")
 }
 ```
 
@@ -97,6 +100,10 @@ pairs(emm, simple = "base_model", adjust = "tukey")
 pairs(emm, simple = "training_environment", adjust = "tukey")
 ```
 ```{r}
+pwpp(emm, by = "base_model", type = "response")
+```
+
+```{r}
 pwpp(emm, by = "training_environment", type = "response")
 ```
 
@@ -113,4 +120,100 @@ overdisp_fun <- function(model) {
   c(chisq = Pearson.chisq, ratio = prat, rdf = rdf, p = pval)
 }
 overdisp_fun(model_glmm)
+```
+
+```{r}
+spearman_boot <- function(data, indices, x_var, y_var) {
+  d <- data[indices, ]
+  return(cor(d[[x_var]], d[[y_var]], method = "spearman", use = "complete.obs"))
+}
+
+# Split the data
+df_cloud <- df %>% filter(training_environment == "Server")
+df_local <- df %>% filter(training_environment == "Desktop ML Engineer")
+
+# Set seed for reproducibility
+set.seed(123)
+
+# Bootstrap (1000 iterations)
+boot_cloud <- boot(
+  data = df_cloud, statistic = spearman_boot, R = 1000,
+  x_var = "gpu_usage", y_var = "energy"
+)
+boot_local <- boot(
+  data = df_local, statistic = spearman_boot, R = 1000,
+  x_var = "gpu_usage", y_var = "energy"
+)
+
+boot.ci(boot_cloud, type = "perc")
+boot.ci(boot_local, type = "perc")
+```
+
+```{r}
+# Bootstrap function for difference in correlations
+diff_corr_boot <- function(data, indices) {
+  d <- data[indices, ]
+  d_cloud <- d[d$training_environment == "Server", ]
+  d_local <- d[d$training_environment == "Desktop ML Engineer", ]
+
+  cor_cloud <- cor(d_cloud$gpu_usage, d_cloud$energy, method = "spearman", use = "complete.obs")
+  cor_local <- cor(d_local$gpu_usage, d_local$energy, method = "spearman", use = "complete.obs")
+
+  return(cor_cloud - cor_local)
+}
+
+# Combine data and bootstrap the difference
+df_combined <- df %>% filter(training_environment %in% c("Server", "Desktop ML Engineer"))
+
+set.seed(123)
+boot_diff <- boot(data = df_combined, statistic = diff_corr_boot, R = 1000)
+
+boot.ci(boot_diff, type = "perc")
+```
+
+```{r fig.align="center", echo=FALSE, fig.width=14}
+ggplot(df, aes(x = gpu_usage, y = energy)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", se = FALSE, color = "darkorange") +
+  facet_wrap(~training_environment) +
+  labs(
+    title = "Spearman Correlation between GPU Usage and Energy by Training Environment",
+    x = "GPU Usage",
+    y = "Energy Consumption"
+  )
+```
+
+```{r}
+df_stratified <- df %>%
+  filter(!is.na(gpu_usage), !is.na(energy)) %>%
+  group_by(training_environment) %>%
+  summarise(
+    spearman_rho = cor(gpu_usage, energy, method = "spearman"),
+    p_value = cor.test(gpu_usage, energy, method = "spearman")$p.value,
+    n = n()
+  )
+df_stratified
+```
+
+## Fit a non-linear model
+```{r}
+df_local <- df %>% filter(training_environment == "Desktop ML Engineer")
+
+model_nls <- nlsLM(energy ~ a * exp(b * gpu_usage),
+                 data = df_local,
+                 start = list(a = 1, b = 0.01))
+summary(model_nls)
+```
+
+Plot the exponential fit for the local ML engineer training environment.
+```{r}
+df_local$pred_nls <- predict(model_nls)
+
+ggplot(df_local, aes(x = gpu_usage, y = energy)) +
+  geom_point(alpha = 0.5) +
+  geom_line(aes(y = pred_nls), color = "blue") +
+  labs(title = "Exponential Relationship in Desktop ML Engineer",
+       x = "GPU Usage (%)", y = "Energy Consumption (MJ)") +
+  theme_minimal()
+
 ```
