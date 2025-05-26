@@ -1,11 +1,16 @@
 import datetime
 import os
 
-import pandas as pd
 from mlflow import MlflowClient
+import pandas as pd
 from tqdm import tqdm
 
-from features.preprocessing import FLOPS_TO_GFLOPS
+from features.preprocessing import (
+    FLOPS_TO_GFLOPS,
+    build_analysis_dataset,
+    build_epoch_energy_dataset,
+    build_metrics_dataset,
+)
 from models.dl.model_factory import (
     InceptionV3Factory,
     MobileNetV2Factory,
@@ -129,6 +134,51 @@ def build_epoch_ends_from_mlflow():
 
 
 if __name__ == "__main__":
+    df = pd.read_parquet(METRICS_DIR / "interim" / "dl-training-profiling-dataset.gzip")
+    df = df.replace(
+        {
+            "local": "desktop",
+            "cloud": "server",
+        }
+    )
+    df.to_parquet(
+        METRICS_DIR / "interim" / "dl-training-profiling-dataset.gzip",
+        compression="gzip",
+        index=False,
+        engine="pyarrow",
+    )
+
+    df = pd.read_parquet(METRICS_DIR / "interim" / "dl-epoch-energy-consumption-dataset.gzip")
+    df = df.replace(
+        {"Local Normal User": "Desktop Normal User", "Local ML Engineer": "Desktop ML Engineer", "Cloud": "Server"}
+    )
+    df.to_parquet(
+        METRICS_DIR / "interim" / "dl-epoch-energy-consumption-dataset.gzip",
+        compression="gzip",
+        index=False,
+        engine="pyarrow",
+    )
+
+    df = pd.read_parquet(METRICS_DIR / "interim" / "model_metrics.gzip")
+    df = df.replace({"local": "desktop", "cloud": "server"})
+    df.to_parquet(
+        METRICS_DIR / "interim" / "model_metrics.gzip",
+        compression="gzip",
+        index=False,
+        engine="pyarrow",
+    )
+
+    df = pd.read_parquet(METRICS_DIR / "processed" / "dl-training-energy-consumption-dataset.gzip")
+    df = df.replace(
+        {"Local Normal User": "Desktop Normal User", "Local ML Engineer": "Desktop ML Engineer", "Cloud": "Server"}
+    )
+    df.to_parquet(
+        METRICS_DIR / "processed" / "dl-training-energy-consumption-dataset.gzip",
+        compression="gzip",
+        index=False,
+        engine="pyarrow",
+    )
+
     # add_total_memory()
     # build_metrics_dataset(save_to_file=True)
     # build_analysis_dataset(save_to_file=True)
@@ -148,36 +198,36 @@ if __name__ == "__main__":
 
     # train_timeseries_kmeans(metrics, n_clusters=10, metric="dtw", max_iter=5, n_init=2, verbose=True, n_jobs=12)
     # build_epoch_ends_from_mlflow()
-    # _process_raw_files(
-    #     "cloud",
-    #     "mobilenet_v2",
-    #     "chesslive-occupancy",
-    #     "00880f78cd0f458ba2a0d2ea72c88805",
-    #     "/home/santiago/Local-Projects/seaa2023_ect_extension/data/metrics/raw/cloud/mobilenet_v2/chesslive-occupancy/cpu-mem-usage-20221206T003424.csv",
-    #     "/home/santiago/Local-Projects/seaa2023_ect_extension/data/metrics/raw/cloud/mobilenet_v2/chesslive-occupancy/gpu-power-20221206T003424.csv",
-    # )
-    model = MobileNetV2Factory().get_model("chesslive", (128, 128, 3), 32).build_model()
-    # print(model.model.summary())
-    mobilenet_flops = compute_maccs(model.model) * 2 * FLOPS_TO_GFLOPS
-    model = NASNetMobileFactory().get_model("chesslive", (128, 128, 3), 32).build_model()
-    # print(model.model.summary())
-    nasnet_flops = compute_maccs(model.model) * 2 * FLOPS_TO_GFLOPS
-    model = XceptionFactory().get_model("chesslive", (128, 128, 3), 32).build_model()
-    # print(model.model.summary())
-    xception_flops = compute_maccs(model.model) * 2 * FLOPS_TO_GFLOPS
-    model = ResNet50Factory().get_model("chesslive", (128, 128, 3), 32).build_model()
-    # print(model.model.summary())
-    resnet_flos = compute_maccs(model.model) * 2 * FLOPS_TO_GFLOPS
-    model = VGG16Factory().get_model("chesslive", (128, 128, 3), 32).build_model()
-    # print(model.model.summary())
-    vgg16_flops = compute_maccs(model.model) * 2 * FLOPS_TO_GFLOPS
-    model = InceptionV3Factory().get_model("caltech101", (128, 128, 3), 32).build_model()
-    # print(model.model.summary())
-    inception_flops = compute_maccs(model.model) * 2 * FLOPS_TO_GFLOPS
+    # # _process_raw_files(
+    # #     "cloud",
+    # #     "mobilenet_v2",
+    # #     "chesslive-occupancy",
+    # #     "00880f78cd0f458ba2a0d2ea72c88805",
+    # #     "/home/santiago/Local-Projects/seaa2023_ect_extension/data/metrics/raw/cloud/mobilenet_v2/chesslive-occupancy/cpu-mem-usage-20221206T003424.csv",
+    # #     "/home/santiago/Local-Projects/seaa2023_ect_extension/data/metrics/raw/cloud/mobilenet_v2/chesslive-occupancy/gpu-power-20221206T003424.csv",
+    # # )
+    # model = MobileNetV2Factory().get_model("chesslive", (128, 128, 3), 32).build_model()
+    # # print(model.model.summary())
+    # mobilenet_flops = compute_maccs(model.model) * 2 * FLOPS_TO_GFLOPS
+    # model = NASNetMobileFactory().get_model("chesslive", (128, 128, 3), 32).build_model()
+    # # print(model.model.summary())
+    # nasnet_flops = compute_maccs(model.model) * 2 * FLOPS_TO_GFLOPS
+    # model = XceptionFactory().get_model("chesslive", (128, 128, 3), 32).build_model()
+    # # print(model.model.summary())
+    # xception_flops = compute_maccs(model.model) * 2 * FLOPS_TO_GFLOPS
+    # model = ResNet50Factory().get_model("chesslive", (128, 128, 3), 32).build_model()
+    # # print(model.model.summary())
+    # resnet_flos = compute_maccs(model.model) * 2 * FLOPS_TO_GFLOPS
+    # model = VGG16Factory().get_model("chesslive", (128, 128, 3), 32).build_model()
+    # # print(model.model.summary())
+    # vgg16_flops = compute_maccs(model.model) * 2 * FLOPS_TO_GFLOPS
+    # model = InceptionV3Factory().get_model("caltech101", (128, 128, 3), 32).build_model()
+    # # print(model.model.summary())
+    # inception_flops = compute_maccs(model.model) * 2 * FLOPS_TO_GFLOPS
 
-    print(f"MobileNetV2: {mobilenet_flops:.2f} GFLOPS")
-    print(f"NASNetMobile: {nasnet_flops:.2f} GFLOPS")
-    print(f"Xception: {xception_flops:.2f} GFLOPS")
-    print(f"ResNet50: {resnet_flos:.2f} GFLOPS")
-    print(f"VGG16: {vgg16_flops:.2f} GFLOPS")
-    print(f"InceptionV3: {inception_flops:.2f} GFLOPS")
+    # print(f"MobileNetV2: {mobilenet_flops:.2f} GFLOPS")
+    # print(f"NASNetMobile: {nasnet_flops:.2f} GFLOPS")
+    # print(f"Xception: {xception_flops:.2f} GFLOPS")
+    # print(f"ResNet50: {resnet_flos:.2f} GFLOPS")
+    # print(f"VGG16: {vgg16_flops:.2f} GFLOPS")
+    # print(f"InceptionV3: {inception_flops:.2f} GFLOPS")
