@@ -1,0 +1,117 @@
+---
+title: "RQ1: What is the impact of model architecture and training environment on image classification training concerning energy consumption and GPU usage?"
+output: html_notebook
+author: "Santiago del Rey"
+---
+
+```{r include=FALSE}
+# Load libraries
+library(arrow)
+library(dplyr)
+library(lme4)
+library(lmerTest) # p-values for lmer
+library(performance) # check assumptions
+library(DHARMa)
+library(glmmTMB)
+library(lattice)
+library(emmeans) # post hoc tests
+library(MASS)
+library(car)
+library(minpack.lm)
+library(boot)
+library(sjPlot)
+library(ggplot2)
+library(ggpubr) # for publication-ready plots
+```
+
+## Load data
+We load the data from the parquet file. We filter out the `inception_v3` architecture and the `Local Normal User` training environment, as they are not relevant for RQ1.
+We also normalize the energy consumption by the total number of images seen during training and convert the energy from MJ to J for analysis.
+```{r}
+df <- read_parquet("../data/metrics/processed/dl-training-energy-consumption-dataset.gzip") %>%
+  filter(architecture != "inception_v3" & `training environment` != "Desktop Normal User" & `return code` == 0) %>%
+  mutate(
+    energy = (`energy (MJ)` * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
+    training_environment = factor(`training environment`),
+    architecture = factor(architecture),
+    gpu_usage = `gpu usage (%)`,
+  )
+
+clean_data <- df %>%
+  group_by(architecture, training_environment) %>%
+  mutate(
+    Q1 = quantile(gpu_usage, 0.25),
+    Q3 = quantile(gpu_usage, 0.75),
+    IQR = Q3 - Q1,
+    is_outlier = gpu_usage < (Q1 - 1.5 * IQR) | gpu_usage > (Q3 + 1.5 * IQR)
+  ) %>%
+  ungroup()
+
+filtered_data <- clean_data %>%
+  filter(!is_outlier) %>%
+  dplyr::select(-Q1, -Q3, -IQR, -is_outlier)
+```
+
+```{r}
+head(df)
+```
+
+## Data summary
+```{r}
+filtered_data %>%
+  group_by(architecture, training_environment) %>%
+  summarise(
+    mean_gpu_usage = mean(gpu_usage, na.rm = TRUE),
+    sd_gpu_usage = sd(gpu_usage, na.rm = TRUE),
+    min_gpu_usage = min(gpu_usage, na.rm = TRUE),
+    max_gpu_usage = max(gpu_usage, na.rm = TRUE),
+    n = n()
+  )
+```
+
+```{r}
+hist(filtered_data$gpu_usage, breaks = 30, main = "Distribution of GPU usage")
+```
+
+```{r}
+boxcox(lm(gpu_usage ~ architecture * training_environment, data = filtered_data))
+```
+
+
+
+## Create a linear mixed model
+We create a linear mixed model with `gpu_usage` as the response variable and `training_environment` and `architecture` as fixed effects. We also include an error term for the `subject` variable to account for the fact that it is a random effect.
+```{r}
+filtered_data$gpu_usage_sq <- filtered_data$gpu_usage^2
+model <- lm(gpu_usage_sq ~ architecture * training_environment, data = filtered_data)
+
+summary(model)
+```
+
+## Model diagnostics
+We check the model diagnostics to ensure that the LMM is appropriate for the data.
+```{r}
+sim_res <- simulateResiduals(fittedModel = model)
+
+testDispersion(sim_res)        # Should not be significant
+testUniformity(sim_res)        # Check for deviation from expected residuals
+testOutliers(sim_res)          # Identify outlier behavior
+```
+
+## Significance testing
+```{r}
+# For linear models
+options(contrasts = c("contr.sum", "contr.poly"))  # sum-to-zero contrasts for Type III
+Anova(model, type = 3)
+```
+
+## Post hoc tests
+```{r}
+emm <- emmeans(model, ~ architecture * training_environment)
+
+# Pairwise comparisons
+pairs(emm, simple = "each", combine = TRUE)
+
+# Summary of marginal means
+summary(emm)
+```

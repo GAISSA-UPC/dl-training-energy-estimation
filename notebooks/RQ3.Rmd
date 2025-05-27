@@ -1,0 +1,117 @@
+---
+title: "RQ3"
+output: html_notebook
+author: "Santiago del Rey"
+---
+
+## Load libraries
+```{r include=FALSE}
+library(arrow)
+library(dplyr)
+library(ggplot2)
+library(ggpubr) # for publication-ready plots
+library(lme4)
+library(nlme)
+library(lmerTest) # p-values for lmer
+library(performance) # check assumptions
+library(emmeans) # post hoc tests
+library(car)
+library(rstatix)
+library(effectsize)
+library(minpack.lm)
+library(boot)
+```
+
+## Load data
+```{r}
+df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
+  filter(architecture == "inception_v3" & `training environment` == "Server") %>%
+  mutate(
+    energy = (`energy (MJ)` * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
+    batch_size = factor(`batch size`),
+    input_size = factor(`image size`),
+    dataset = factor(`dataset`),
+    gpu_usage = `gpu usage (%)`,
+  ) %>%
+  group_by(batch_size, input_size, dataset) %>%
+  mutate(
+    subject_id = factor(row_number()),
+  )
+```
+
+## Data summary
+```{r}
+df %>%
+  group_by(batch_size, input_size, dataset) %>%
+  get_summary_stats(energy, type = "mean_sd")
+```
+
+## Visualize data
+```{r}
+bxp <- ggboxplot(
+  df,
+  x = "input_size", y = "energy",
+  color = "batch_size", palette = "jco"
+)
+bxp
+```
+
+## Create a QQ plot for each cell of the design
+```{r}
+ggqqplot(df, "energy", ggtheme = theme_bw()) +
+  facet_grid(batch_size ~ input_size, labeller = "label_both")
+```
+
+## Create a linear mixed model
+Create a linear mixed model to analyze the energy consumption based on batch size and input size, with random effects for subject and dataset.
+```{r}
+df <- ungroup(df) # Ungroup the data to avoid issues with lme
+model_lmm <- lme(
+  energy ~ batch_size * input_size,
+  random = ~ 1 | subject_id / dataset,
+  data = df,
+  na.action = na.omit
+)
+summary(model_lmm)
+
+anova(model_lmm)
+```
+
+## Post hoc tests
+Estimate the effect sizes of the fixed effects in the model.
+```{r}
+eta_squared(model_lmm, partial = TRUE)
+```
+
+```{r}
+r2(model_lmm)
+```
+
+
+Estimate marginal means for the interaction between batch size and input size.
+```{r}
+emm <- emmeans(model_lmm, ~ batch_size * input_size)
+summary(emm)
+```
+
+Pairwise comparisons for the interaction between batch size and input size.
+```{r}
+pairs(emm, by = "input_size", adjust = "tukey")
+pairs(emm, by = "batch_size", adjust = "tukey")
+```
+
+Plot the estimated marginal means.
+```{r}
+emm_df <- as.data.frame(emm)
+
+ggplot(emm_df, aes(x = batch_size, y = emmean, group = input_size, color = input_size)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 3) +
+  labs(
+    title = "Estimated Marginal Means of Energy (Desktop)",
+    x = "Batch Size",
+    y = "Predicted Energy Consumption",
+    color = "Input Size"
+  ) +
+  theme_minimal()
+```
