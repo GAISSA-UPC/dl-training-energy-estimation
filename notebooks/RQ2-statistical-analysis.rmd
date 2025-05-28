@@ -1,0 +1,161 @@
+---
+title: "RQ2: How does the computational complexity of model architectures affect the training energy consumption, GPU usage, and model correctness?"
+output: html_notebook
+author: "Santiago del Rey"
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load libraries
+library(arrow)
+library(tidyverse)
+library(DHARMa)
+library(broom)
+library(car)
+library(performance) # check assumptions
+library(emmeans) # post hoc tests
+library(gridExtra)
+library(ggfortify)
+library(ggpubr) # for publication-ready plots
+```
+
+## Load and preprocess data
+
+We load the data from the parquet file, filter out the `inception_v3` architecture and the `Desktop Normal User` training environment, and normalize the energy consumption by the total number of images seen during training (converting MJ to J). We also prepare the `gpu_usage` variable.
+
+```{r}
+df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
+    rename(training_environment = `training environment`, gpu_usage = `gpu usage (%)`, f1_score = `f1-score`) %>%
+    filter(architecture != "inception_v3" & training_environment != "Desktop Normal User") %>%
+    mutate(
+        energy = (`energy (MJ)` * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
+        architecture = case_match(
+            architecture,
+            "mobilenet_v2" ~ "Mobilenet V2",
+            "nasnet_mobile" ~ "NASNet Mobile",
+            "resnet50" ~ "ResNet50",
+            "xception" ~ "Xception",
+            "vgg16" ~ "VGG16"
+        ),
+        architecture = factor(architecture, levels = c("Mobilenet V2", "NASNet Mobile", "ResNet50", "Xception", "VGG16")),
+        training_environment = factor(training_environment, levels = c("Desktop ML Engineer", "Server")),
+    ) %>%
+    dplyr::select(energy, gpu_usage, f1_score, GFLOPs, architecture, training_environment)
+```
+
+### Outlier filtering functions
+
+```{r}
+# Define a function to filter outliers of a given variable on an input data frame
+filter_outliers <- function(df, variable) {
+    df %>%
+        group_by(architecture, training_environment) %>%
+        mutate(
+            Q1 = quantile(!!sym(variable), 0.25),
+            Q3 = quantile(!!sym(variable), 0.75),
+            IQR = Q3 - Q1,
+            is_outlier = !!sym(variable) < (Q1 - 1.5 * IQR) | !!sym(variable) > (Q3 + 1.5 * IQR)
+        ) %>%
+        ungroup() %>%
+        filter(!is_outlier) %>%
+        dplyr::select(-Q1, -Q3, -IQR, -is_outlier)
+}
+```
+
+## Visualize the GFLOPs
+```{r, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
+ggplot(df, aes(x = architecture, y = GFLOPs)) +
+    geom_point() +
+    labs(title = "GFLOPs across Architectures") +
+    theme_minimal() +
+    scale_fill_brewer(palette = "Set1")
+```
+
+---
+
+# RQ2.1: How does the architectural computational complexity of a DL model affect energy consumption and GPU usage?
+
+## Effects on energy consumption
+
+Filter outliers for energy consumption and summarize statistics.
+```{r}
+# Filter outliers for energy consumption
+df_energy <- filter_outliers(df, "energy")
+
+# summary statistics for energy consumption
+df_energy %>%
+    group_by(architecture, training_environment) %>%
+    summarise(
+        mean_energy = mean(energy),
+        sd_energy = sd(energy),
+        min_energy = min(energy),
+        max_energy = max(energy),
+        n = n()
+    )
+```
+
+```{r, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
+par(mfrow = c(2, 3)) # Set up a 2x3 grid for histograms
+hist(df_energy$energy, main = "Raw")
+hist(log(df_energy$energy), main = "Log")
+hist(sqrt(df_energy$energy), main = "Sqrt")
+hist(df_energy$energy^2, main = "Square")
+hist(df_energy$energy^3, main = "Cube")
+hist(100 - df_energy$energy, main = "Reflected")
+```
+
+```{r}
+ggplot(df_energy, aes(x = GFLOPs, y = log(energy))) +
+  geom_point() +
+  geom_smooth(method = "loess") +
+  facet_wrap(~ training_environment)
+```
+
+
+## Initial Linear Model
+```{r}
+model_energy <- lm(energy ~ GFLOPs * training_environment, data = df_energy)
+summary(model_energy)
+```
+
+### Diagnostics for Initial Model
+```{r}
+sim_energy <- simulateResiduals(model_energy, n = 5000)
+plot(sim_energy)
+testUniformity(sim_energy)
+testDispersion(sim_energy)
+testResiduals(sim_energy)
+```
+
+## Log-Transformed Linear Model
+```{r}
+model_log_energy <- lm(log(energy) ~ GFLOPs * training_environment, data = df_energy)
+sim_log <- simulateResiduals(model_log_energy, n = 5000)
+plot(sim_log)
+testUniformity(sim_log)
+testDispersion(sim_log)
+testResiduals(sim_log)
+```
+
+## Gamma GLM with Log Link
+```{r}
+model_glm_energy <- glm(energy ~ GFLOPs * training_environment,
+                        family = Gamma(link = "log"), data = df_energy)
+sim_glm <- simulateResiduals(model_glm_energy, n = 5000)
+plot(sim_glm)
+testUniformity(sim_glm)
+testDispersion(sim_glm)
+testResiduals(sim_glm)
+```
+
+## Model Comparison
+```{r}
+compare_performance(model_energy, model_log_energy, model_glm_energy)
+```
+
+## Optional: Visualize Residuals
+```{r}
+autoplot(model_energy)
+autoplot(model_log_energy)
+```
