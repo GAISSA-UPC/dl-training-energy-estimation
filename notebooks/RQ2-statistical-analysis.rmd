@@ -10,6 +10,8 @@ knitr::opts_chunk$set(echo = TRUE)
 # Load libraries
 library(arrow)
 library(tidyverse)
+library(lme4)
+library(lmerTest) # p-values for lmer
 library(DHARMa)
 library(broom)
 library(car)
@@ -64,7 +66,7 @@ filter_outliers <- function(df, variable) {
 ```
 
 ## Visualize the GFLOPs
-```{r, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
+```{r gflops_by_arch, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
 ggplot(df, aes(x = architecture, y = GFLOPs)) +
     geom_point() +
     labs(title = "GFLOPs across Architectures") +
@@ -105,21 +107,21 @@ hist(df_energy$energy^3, main = "Cube")
 hist(100 - df_energy$energy, main = "Reflected")
 ```
 
-```{r}
-ggplot(df_energy, aes(x = GFLOPs, y = log(energy))) +
-  geom_point() +
-  geom_smooth(method = "loess") +
-  facet_wrap(~ training_environment)
-```
-
-
 ## Initial Linear Model
 ```{r}
-model_energy <- lm(energy ~ GFLOPs * training_environment, data = df_energy)
+
+model_energy <- lmer(energy ~ GFLOPs * training_environment + (1 + training_environment | architecture), data = df_energy)
 summary(model_energy)
 ```
 
 ### Diagnostics for Initial Model
+Base diagnostics
+```{r}
+par(mfrow = c(2, 2))
+plot(model_energy)
+```
+
+DHARMa diagnostics
 ```{r}
 sim_energy <- simulateResiduals(model_energy, n = 5000)
 plot(sim_energy)
@@ -128,34 +130,15 @@ testDispersion(sim_energy)
 testResiduals(sim_energy)
 ```
 
-## Log-Transformed Linear Model
 ```{r}
-model_log_energy <- lm(log(energy) ~ GFLOPs * training_environment, data = df_energy)
-sim_log <- simulateResiduals(model_log_energy, n = 5000)
-plot(sim_log)
-testUniformity(sim_log)
-testDispersion(sim_log)
-testResiduals(sim_log)
+plotResiduals(sim_energy, df_energy$GFLOPs)
+plotResiduals(sim_energy, df_energy$training_environment)
 ```
 
-## Gamma GLM with Log Link
 ```{r}
-model_glm_energy <- glm(energy ~ GFLOPs * training_environment,
-                        family = Gamma(link = "log"), data = df_energy)
-sim_glm <- simulateResiduals(model_glm_energy, n = 5000)
-plot(sim_glm)
-testUniformity(sim_glm)
-testDispersion(sim_glm)
-testResiduals(sim_glm)
-```
-
-## Model Comparison
-```{r}
-compare_performance(model_energy, model_log_energy, model_glm_energy)
-```
-
-## Optional: Visualize Residuals
-```{r}
-autoplot(model_energy)
-autoplot(model_log_energy)
+library(mgcv)
+model_gamm <- gamm(energy ~ s(GFLOPs) * training_environment, random = list(architecture = ~1), data = df_energy)
+simulationOutput_gamm <- simulateResiduals(model_gamm$mer)
+testUniformity(simulationOutput_gamm)
+plot(simulationOutput_gamm)
 ```
