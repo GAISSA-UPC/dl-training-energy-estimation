@@ -1,0 +1,423 @@
+---
+title: "RQ1: What is the impact of model architecture and training environment on image classification training concerning energy consumption and GPU usage?"
+output: html_notebook
+author: "Santiago del Rey"
+---
+
+```{r include=FALSE}
+# Load libraries
+library(arrow)
+library(dplyr)
+library(lme4)
+library(lmerTest) # p-values for lmer
+library(DHARMa)
+library(emmeans) # post hoc tests
+library(gridExtra)
+library(ggplot2)
+library(ggpubr) # for publication-ready plots
+library(car)
+library(MASS)
+```
+
+## Load and preprocess data
+
+We load the data from the parquet file, filter out the `inception_v3` architecture and the `Desktop Normal User` training environment, and normalize the energy consumption by the total number of images seen during training (converting MJ to J). We also prepare the `gpu_usage` variable.
+
+```{r}
+df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
+  filter(architecture != "inception_v3" & `training environment` != "Desktop Normal User") %>%
+  mutate(
+    energy = (`energy (MJ)` * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
+    training_environment = factor(`training environment`, levels = c("Desktop ML Engineer", "Server")),
+    architecture = case_match(architecture,
+      "mobilenet_v2" ~ "Mobilenet V2",
+      "nasnet_mobile" ~ "NASNet Mobile",
+      "resnet50" ~ "ResNet50",
+      "xception" ~ "Xception",
+      "vgg16" ~ "VGG16"
+    ),
+    architecture = factor(architecture, levels = c("Mobilenet V2", "NASNet Mobile", "ResNet50", "Xception", "VGG16")),
+    gpu_usage = `gpu usage (%)`
+  ) %>%
+  dplyr::select(energy, gpu_usage, architecture, training_environment)
+```
+
+### Outlier filtering functions
+
+```{r}
+# Define a function to filter outliers of a given variable on an input data frame
+filter_outliers <- function(df, variable) {
+  df %>%
+    group_by(architecture, training_environment) %>%
+    mutate(
+      Q1 = quantile(!!sym(variable), 0.25),
+      Q3 = quantile(!!sym(variable), 0.75),
+      IQR = Q3 - Q1,
+      is_outlier = !!sym(variable) < (Q1 - 1.5 * IQR) | !!sym(variable) > (Q3 + 1.5 * IQR)
+    ) %>%
+    ungroup() %>%
+    filter(!is_outlier) %>%
+    dplyr::select(-Q1, -Q3, -IQR, -is_outlier)
+}
+```
+
+---
+
+# Energy Consumption Analysis
+
+## Data summary
+
+```{r}
+filtered_energy_data <- df %>%
+  filter_outliers("energy")
+
+filtered_energy_data %>%
+  group_by(architecture, training_environment) %>%
+  summarise(
+    mean_energy = mean(energy, na.rm = TRUE),
+    sd_energy = sd(energy, na.rm = TRUE),
+    min_energy = min(energy, na.rm = TRUE),
+    max_energy = max(energy, na.rm = TRUE),
+    n = n()
+  )
+```
+
+```{r}
+hist(filtered_energy_data$energy, breaks = 30, main = "Distribution of Energy")
+```
+
+## Linear Model
+
+Fit a linear model to the energy consumption data, including an interaction term between architecture and training environment.
+```{r}
+model_energy <- lm(energy ~ architecture * training_environment, data = filtered_energy_data)
+summary(model_energy)
+```
+
+## Model diagnostics
+
+```{r}
+sim_res_energy <- simulateResiduals(fittedModel = model_energy)
+res_df <- data.frame(
+  scaled_residuals = sim_res_energy$scaledResiduals,
+  predicted = sim_res_energy$fittedPredictedResponse,
+  observed = sim_res_energy$observedResponse
+)
+
+testResiduals(sim_res_energy)
+```
+
+### Remove the outliers detected in the residuals and refit the model
+The results of the outlier test indicate that there are some outliers in the residuals. We will remove these outliers based on the scaled residuals, which are the standardized residuals from the model.
+We will filter out any observations with scaled residuals outside the 2.5%–97.5% quantiles.
+```{r}
+# Remove outliers based on the simulated residuals
+scaled_res <- sim_res_energy$scaledResiduals
+
+# Identify outliers: residuals outside the 2.5%–97.5% quantiles
+lower <- quantile(scaled_res, 0.025)
+upper <- quantile(scaled_res, 0.975)
+
+# Mark which residuals are outside the acceptable range
+outlier_index <- which(scaled_res < lower | scaled_res > upper)
+
+filtered_energy_data <- filtered_energy_data[-outlier_index, ]
+
+# Show the outliers
+filtered_energy_data[outlier_index, ]
+```
+
+Refit the model after removing outliers
+```{r}
+model_energy <- lm(energy ~ architecture * training_environment, data = filtered_energy_data)
+summary(model_energy)
+```
+
+Now the diagnostics show that the model is well-fitted without significant outliers and the residuals are normally distributed.
+```{r}
+sim_res_energy <- simulateResiduals(fittedModel = model_energy)
+
+testResiduals(sim_res_energy)
+```
+
+## Significance testing
+```{r}
+options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
+Anova(model_energy, type = 3)
+```
+
+## Post hoc tests
+
+```{r}
+emm_energy <- emmeans(model_energy, ~ architecture * training_environment)
+pairs(emm_energy, simple = "each", combine = TRUE)
+summary(emm_energy)
+```
+
+Plot the interaction effects
+```{r}
+emm_energy_df <- as.data.frame(emm_energy)
+emm_df <- emm_energy_df %>%
+  mutate(
+    energy_estimate = emmean,
+    lower_CI = lower.CL,
+    upper_CI = upper.CL
+  )
+
+# Set the desired order for the x axis
+emm_df$architecture <- factor(emm_df$architecture, levels = c("Mobilenet V2", "NASNet Mobile", "ResNet50", "Xception", "VGG16"))
+
+ggplot() +
+  # Raw data jittered
+  geom_jitter(
+    data = filtered_energy_data,
+    aes(x = architecture, y = energy, color = training_environment),
+    width = 0.2, alpha = 0.3, size = 1
+  ) +
+  # Estimated points
+  geom_point(
+    data = emm_df,
+    aes(x = architecture, y = energy_estimate, color = training_environment, group = training_environment),
+    size = 3, position = position_dodge(width = 0.4)
+  ) +
+  # Lines connecting estimated points
+  geom_line(
+    data = emm_df,
+    aes(x = architecture, y = energy_estimate, color = training_environment, group = training_environment),
+    position = position_dodge(width = 0.4)
+  ) +
+  # Error bars
+  geom_errorbar(
+    data = emm_df,
+    aes(x = architecture, ymin = lower_CI, ymax = upper_CI, color = training_environment, group = training_environment),
+    width = 0.2, position = position_dodge(width = 0.4)
+  ) +
+  labs(
+    title = NULL,
+    x = NULL,
+    y = "Estimated Energy Consumption (J/image)",
+    color = "Training Environment"
+  ) +
+  theme_pubr() +
+  theme(text = element_text(size = 14))
+```
+---
+
+# GPU Usage Analysis
+
+## Data summary
+
+```{r}
+# Outlier filtering for gpu_usage (by group)
+filtered_gpu_data <- filter_outliers(df, "gpu_usage")
+
+filtered_gpu_data %>%
+  group_by(architecture, training_environment) %>%
+  summarise(
+    mean_gpu_usage = mean(gpu_usage, na.rm = TRUE),
+    sd_gpu_usage = sd(gpu_usage, na.rm = TRUE),
+    min_gpu_usage = min(gpu_usage, na.rm = TRUE),
+    max_gpu_usage = max(gpu_usage, na.rm = TRUE),
+    n = n()
+  )
+```
+
+```{r}
+par(mfrow = c(2, 3)) # Set up a 2x3 grid for histograms
+hist(filtered_gpu_data$gpu_usage, main = "Raw")
+hist(log(filtered_gpu_data$gpu_usage), main = "Log")
+hist(sqrt(filtered_gpu_data$gpu_usage), main = "Sqrt")
+hist(filtered_gpu_data$gpu_usage^2, main = "Square")
+hist(filtered_gpu_data$gpu_usage^3, main = "Cube")
+hist(100 - filtered_gpu_data$gpu_usage, main = "Reflected")
+```
+
+## Linear Model
+```{r}
+max_val <- 100
+filtered_gpu_data$gpu_usage_reflected <- sqrt(max_val - filtered_gpu_data$gpu_usage + 1)
+
+model_gpu <- lm(gpu_usage_reflected ~ architecture * training_environment, data = filtered_gpu_data)
+summary(model_gpu)
+```
+
+## Model diagnostics
+
+```{r}
+sim_res_gpu <- simulateResiduals(fittedModel = model_gpu)
+testResiduals(sim_res_gpu)
+```
+
+### Remove the outliers detected in the residuals and refit the model
+The results of the outlier test indicate that there are some outliers in the residuals. We will remove these outliers based on the scaled residuals, which are the standardized residuals from the model.
+We will filter out any observations with scaled residuals outside the 2.5%–97.5% quantiles.
+```{r}
+# Remove outliers based on the simulated residuals
+scaled_res_gpu <- sim_res_gpu$scaledResiduals
+# Identify outliers: residuals outside the 2.5%–97.5% quantiles
+lower_gpu <- quantile(scaled_res_gpu, 0.025)
+upper_gpu <- quantile(scaled_res_gpu, 0.975)
+# Mark which residuals are outside the acceptable range
+outlier_index_gpu <- which(scaled_res_gpu < lower_gpu | scaled_res_gpu > upper_gpu)
+filtered_gpu_data <- filtered_gpu_data[-outlier_index_gpu, ]
+# Show the outliers
+filtered_gpu_data[outlier_index_gpu, ]
+```
+
+Refit the model after removing outliers
+```{r}
+model_gpu <- lm(gpu_usage_reflected ~ architecture * training_environment, data = filtered_gpu_data)
+summary(model_gpu)
+```
+
+Now the diagnostics show that the model is well-fitted without significant outliers and the residuals are normally distributed.
+```{r}
+sim_res_gpu <- simulateResiduals(fittedModel = model_gpu)
+testResiduals(sim_res_gpu)
+```
+
+```{r}
+plot(sim_res_gpu)  # DHARMa residual plot
+plot(residuals(model_gpu) ~ fitted(model_gpu))  # classic residuals
+```
+
+## Significance testing
+```{r}
+options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
+Anova(model_gpu, type = 3)
+```
+
+## Post hoc tests
+
+```{r}
+emmeans(model_gpu, pairwise ~ architecture * training_environment)
+```
+
+```{r}
+emm_gpu <- emmeans(model_gpu, ~ architecture * training_environment)
+
+# back-transform estimated means
+emm_gpu_df <- as.data.frame(emm_gpu)
+emm_gpu_df <- emm_gpu_df %>%
+  mutate(
+    gpu_estimate = max_val - emmean^2 + 1,
+    lower_CI = max_val - (emmean + SE * qt(0.975, df))^2 + 1,
+    upper_CI = max_val - (emmean - SE * qt(0.975, df))^2 + 1
+  )
+```
+
+Plot the interaction effects
+```{r}
+# Set the desired order for the x axis
+emm_gpu_df$architecture <- factor(emm_gpu_df$architecture, levels = c("Mobilenet V2", "NASNet Mobile", "ResNet50", "Xception", "VGG16"))
+
+ggplot() +
+  # Raw data jittered
+  geom_jitter(
+    data = filtered_gpu_data,
+    aes(x = architecture, y = gpu_usage, color = training_environment),
+    width = 0.2, alpha = 0.3, size = 1
+  ) +
+  # Estimated points
+  geom_point(
+    data = emm_gpu_df,
+    aes(x = architecture, y = gpu_estimate, color = training_environment, group = training_environment),
+    size = 3, position = position_dodge(width = 0.4)
+  ) +
+  # Line connecting the points
+  geom_line(
+    data = emm_gpu_df,
+    aes(x = architecture, y = gpu_estimate, color = training_environment, group = training_environment),
+    position = position_dodge(width = 0.4)
+  ) +
+  # Error bars
+  geom_errorbar(
+    data = emm_gpu_df,
+    aes(x = architecture, ymin = lower_CI, ymax = upper_CI, color = training_environment, group = training_environment),
+    width = 0.2, position = position_dodge(width = 0.4)
+  ) +
+  labs(
+    title = NULL,
+    x = NULL,
+    y = "Estimated GPU Usage (%)",
+    color = "Training Environment"
+  ) +
+  theme_pubr() +
+  theme(text = element_text(size = 14),
+      axis.text.x = element_text(size = 12))
+```
+
+## Visualize estimated energy consumption and gpu usage by architecture and training environment
+Show the estimated energy consumption and GPU usage by architecture and training environment in two plots side by side.
+```{r fig.align="center", fig.width=14}
+energy_plot <- ggplot() +
+  geom_jitter(
+    data = filtered_energy_data,
+    aes(x = architecture, y = energy, color = training_environment),
+    width = 0.2, alpha = 0.3, size = 1
+  ) +
+  geom_point(
+    data = emm_df,
+    aes(x = architecture, y = energy_estimate, color = training_environment, group = training_environment),
+    size = 3, position = position_dodge(width = 0.4)
+  ) +
+  geom_line(
+    data = emm_df,
+    aes(x = architecture, y = energy_estimate, color = training_environment, group = training_environment),
+    position = position_dodge(width = 0.4)
+  ) +
+  geom_errorbar(
+    data = emm_df,
+    aes(x = architecture, ymin = lower_CI, ymax = upper_CI, color = training_environment, group = training_environment),
+    width = 0.2, position = position_dodge(width = 0.4)
+  ) +
+  labs(
+    title = NULL,
+    x = NULL,
+    y = "Estimated Energy Consumption (J/image)",
+    color = "Training Environment"
+  ) +
+  theme_pubr() +
+  theme(text = element_text(size = 14),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+# Create the GPU usage plot
+gpu_plot <- ggplot() +
+  geom_jitter(
+    data = filtered_gpu_data,
+    aes(x = architecture, y = gpu_usage, color = training_environment),
+    width = 0.2, alpha = 0.3, size = 1
+  ) +
+  geom_point(
+    data = emm_gpu_df,
+    aes(x = architecture, y = gpu_estimate, color = training_environment, group = training_environment),
+    size = 3, position = position_dodge(width = 0.4)
+  ) +
+  geom_line(
+    data = emm_gpu_df,
+    aes(x = architecture, y = gpu_estimate, color = training_environment, group = training_environment),
+    position = position_dodge(width = 0.4)
+  ) +
+  geom_errorbar(
+    data = emm_gpu_df,
+    aes(x = architecture, ymin = lower_CI, ymax = upper_CI, color = training_environment, group = training_environment),
+    width = 0.2, position = position_dodge(width = 0.4)
+  ) +
+  labs(
+    title = NULL,
+    x = NULL,
+    y = "Estimated GPU Usage (%)",
+    color = "Training Environment"
+  ) +
+  theme_pubr() +
+  theme(text = element_text(size = 14),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+# grid.arrange(energy_plot, gpu_plot, ncol = 2)
+
+combined_plot <- ggarrange(
+  energy_plot, gpu_plot,
+  ncol = 2, nrow = 1,
+  common.legend = TRUE,
+  legend = "top"
+)
+combined_plot
+```
