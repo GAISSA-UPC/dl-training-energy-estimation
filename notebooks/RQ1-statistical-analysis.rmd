@@ -4,7 +4,8 @@ output: html_notebook
 author: "Santiago del Rey"
 ---
 
-```{r include=FALSE}
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
 # Load libraries
 library(arrow)
 library(dplyr)
@@ -67,7 +68,7 @@ filter_outliers <- function(df, variable) {
 
 ## Data summary
 
-```{r}
+```{r datasummary}
 filtered_energy_data <- df %>%
   filter_outliers("energy")
 
