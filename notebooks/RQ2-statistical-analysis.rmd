@@ -18,6 +18,7 @@ library(broom)
 library(car)
 library(performance) # check assumptions
 library(emmeans) # post hoc tests
+library(multcomp)
 library(gridExtra)
 library(ggfortify)
 library(ggpubr) # for publication-ready plots
@@ -45,6 +46,7 @@ df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumpti
         training_environment = factor(training_environment, levels = c("Desktop ML Engineer", "Server")),
         efficiency = f1_score / energy_per_image,
     ) %>%
+    mutate(energy_per_image = as.numeric(scale(energy_per_image, center = TRUE, scale = TRUE))) %>%
     dplyr::select(energy_per_image, f1_score, efficiency, GFLOPs, architecture, training_environment)
 ```
 
@@ -72,15 +74,15 @@ filter_outliers <- function(df, variable) {
 # Filter F1-score outliers
 df_filtered_f1 <- df %>%
     group_by(architecture) %>%
-        mutate(
-            Q1 = quantile(f1_score, 0.25),
-            Q3 = quantile(f1_score, 0.75),
-            IQR = Q3 - Q1,
-            is_outlier = f1_score < (Q1 - 1.5 * IQR) | f1_score > (Q3 + 1.5 * IQR)
-        ) %>%
-        ungroup() %>%
-        filter(!is_outlier) %>%
-        dplyr::select(-Q1, -Q3, -IQR, -is_outlier)
+    mutate(
+        Q1 = quantile(f1_score, 0.25),
+        Q3 = quantile(f1_score, 0.75),
+        IQR = Q3 - Q1,
+        is_outlier = f1_score < (Q1 - 1.5 * IQR) | f1_score > (Q3 + 1.5 * IQR)
+    ) %>%
+    ungroup() %>%
+    filter(!is_outlier) %>%
+    dplyr::select(-Q1, -Q3, -IQR, -is_outlier)
 
 
 print(paste("Number of outliers removed from f1_score:", nrow(df) - nrow(df_filtered_f1)))
@@ -91,6 +93,25 @@ print(paste("Number of outliers removed from energy_per_image:", nrow(df_filtere
 head(df)
 # Display summary statistics of the data frame
 summary(df)
+
+df %>%
+    group_by(architecture, training_environment) %>%
+    summarise(
+        min_f1_score = min(f1_score, na.rm = TRUE),
+        max_f1_score = max(f1_score, na.rm = TRUE),
+        mean_f1_score = mean(f1_score, na.rm = TRUE),
+        sd_f1_score = sd(f1_score, na.rm = TRUE),
+        min_energy_per_image = min(energy_per_image, na.rm = TRUE),
+        max_energy_per_image = max(energy_per_image, na.rm = TRUE),
+        mean_energy_per_image = mean(energy_per_image, na.rm = TRUE),
+        sd_energy_per_image = sd(energy_per_image, na.rm = TRUE),
+        min_efficiency = min(efficiency, na.rm = TRUE),
+        max_efficiency = max(efficiency, na.rm = TRUE),
+        mean_efficiency = mean(efficiency, na.rm = TRUE),
+        sd_efficiency = sd(efficiency, na.rm = TRUE),
+    ) %>%
+    ungroup() %>%
+    arrange(architecture, training_environment)
 ```
 
 ## Exploratory visualization
@@ -207,45 +228,6 @@ sim_res_model1 <- simulateResiduals(model1_filtered)
 testResiduals(sim_res_model1)
 ```
 
-### Model 1B: F1-score as a function of architecture and training environment
-```{r model1b}
-model1b <- betareg(f1_score ~ energy_per_image + architecture * training_environment, data = df)
-summary(model1b)
-```
-### Model diagnostics for Model 1B
-```{r model1b_diagnostics}
-# Check residuals
-residuals_model1 <- residuals(model1b)
-sim_res_model1 <- simulateResiduals(model1b)
-# Plot residuals
-testResiduals(sim_res_model1)
-# Check homoscedasticity
-homoscedasticity_test <- leveneTest(residuals_model1 ~ architecture * training_environment, data = df_clean)
-homoscedasticity_test
-```
-```{r check_model1b, fig.height=6}
-# Check model assumptions
-model1_performance <- performance::check_model(model1b)
-model1_performance
-```
-```{r}
-# Check for outliers
-outliers_model1 <- model1_performance$outliers
-outliers_model1
-# Post hoc tests
-post_hoc_model1 <- emmeans(model1b, ~ architecture * training_environment)
-post_hoc_results_model1 <- summary(post_hoc_model1)
-post_hoc_results_model1
-# Plot post hoc results
-post_hoc_plot_model1 <- ggplot(post_hoc_results_model1, aes(x = architecture, y = emmean, fill = training_environment)) +
-    geom_bar(stat = "identity", position = position_dodge()) +
-    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2, position = position_dodge(0.9)) +
-    labs(title = "Post Hoc Results for Model 1", x = "Architecture", y = "Estimated Marginal Mean (F1-score)") +
-    theme_minimal() +
-    scale_fill_brewer(palette = "Set1")
-print(post_hoc_plot_model1)
-```
-
 ### Model 2: F1-score per Joule as a function of architecture and training environment
 ```{r model2}
 model2 <- lm(efficiency ~ architecture * training_environment, data = df_clean)
@@ -321,6 +303,53 @@ post_hoc_plot_model3 <- ggplot(post_hoc_results_model3, aes(x = architecture, y 
     scale_fill_brewer(palette = "Set1")
 print(post_hoc_plot_model3)
 ```
+
+### Model 3B: Use beta regression
+```{r model3b}
+df_clean <- df_clean %>% mutate(f1_trans = (f1_score * (n() - 1) + 0.5) / n())
+model3b <- betareg(f1_trans ~ architecture * training_environment | energy_per_image, data = df_clean)
+summary(model3b)
+```
+
+```{r}
+summary(lm(f1_score ~ energy_per_image, data = df_clean))
+```
+
+
+### Model diagnostics for Model 1B
+```{r model3b_diagnostics}
+# Check residuals
+residuals_model3b <- residuals(model3b)
+# Plot residuals
+par(mfrow = c(2, 2))
+plot(model3b)
+```
+
+Show extreme residuals
+```{r extreme_residuals}
+extreme_residuals <- which(abs(residuals(model3b, type = "pearson")) > 2)
+
+df_clean[extreme_residuals, ]
+```
+```{r model3b_post_hoc}
+# Post hoc tests
+post_hoc_model3b <- emmeans(model3b, ~ architecture * training_environment, type = "response")
+post_hoc_results_model3b <- summary(post_hoc_model3b)
+post_hoc_results_model3b
+pairs(post_hoc_model3b)
+# Plot post hoc results
+post_hoc_plot_model3b <- ggplot(post_hoc_results_model3b, aes(x = architecture, y = emmean, fill = training_environment)) +
+    geom_bar(stat = "identity", position = position_dodge()) +
+    geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL), width = 0.2, position = position_dodge(0.9)) +
+    labs(title = "Post Hoc Results for Model 1", x = "Architecture", y = "Estimated Marginal Mean (F1-score)") +
+    theme_minimal() +
+    scale_fill_brewer(palette = "Set1")
+print(post_hoc_plot_model3b)
+
+cld(post_hoc_model3b, Letters = letters, adjust = "tukey")
+
+```
+
 
 ## Model Comparison
 ```{r model_comparison}
