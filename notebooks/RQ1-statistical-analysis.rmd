@@ -8,7 +8,7 @@ author: "Santiago del Rey"
 knitr::opts_chunk$set(echo = TRUE)
 # Load libraries
 library(arrow)
-library(dplyr)
+library(tidyverse)
 library(lme4)
 library(lmerTest) # p-values for lmer
 library(DHARMa)

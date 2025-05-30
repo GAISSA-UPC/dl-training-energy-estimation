@@ -1,21 +1,18 @@
 ---
 title: "RQ2: Do gains in correctness justify energy-greedy architectures?"
-output: html_notebook
 author: "Santiago del Rey"
+output: html_notebook
 ---
 
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-# Load libraries
 library(arrow)
 library(tidyverse)
-library(lme4) # for linear mixed-effects models
-library(lmerTest) # for p-values in lmer models
+library(lmtest)
 library(betareg)
-library(glmmTMB) # for beta regression
+library(gamlss)
 library(DHARMa)
-library(broom)
 library(car)
 library(performance) # check assumptions
 library(emmeans) # post hoc tests
@@ -47,9 +44,9 @@ df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumpti
         ),
         architecture = factor(architecture, levels = c("Mobilenet V2", "NASNet Mobile", "ResNet50", "Xception", "VGG16")),
         training_environment = factor(training_environment, levels = c("Desktop ML Engineer", "Server")),
-        efficiency = energy / f1_score, # Megajoule per F1-score
+        efficiency = (energy / max(energy, na.rm = TRUE)) / (f1_score / max(f1_score, na.rm = TRUE)), # Megajoule per F1-score
     ) %>%
-    dplyr::select(energy, energy_per_image, f1_score, efficiency, GFLOPs, architecture, training_environment)
+    dplyr::select(energy, energy_per_image, f1_score, efficiency, GFLOPs, architecture, training_environment, `training duration (h)`)
 ```
 
 ### Outlier filtering functions
@@ -74,7 +71,7 @@ filter_outliers <- function(df, variable) {
 ## Data overview
 ```{r data_overview}
 # Filter F1-score outliers
-df_filtered_f1 <- df %>%
+df_clean <- df %>%
     group_by(architecture) %>%
     mutate(
         Q1 = quantile(f1_score, 0.25),
@@ -83,20 +80,29 @@ df_filtered_f1 <- df %>%
         is_outlier = f1_score < (Q1 - 1.5 * IQR) | f1_score > (Q3 + 1.5 * IQR)
     ) %>%
     ungroup() %>%
+    dplyr::select(-Q1, -Q3, -IQR)
+
+df_clean %>%
+    filter(is_outlier)
+
+df_clean <- df_clean %>%
     filter(!is_outlier) %>%
-    dplyr::select(-Q1, -Q3, -IQR, -is_outlier)
+    dplyr::select(-is_outlier)
+
+nrows <- nrow(df_clean)
+df_clean <- filter_outliers(df_clean, "energy_per_image")
+print(paste("Number of outliers removed from energy_per_image:", nrows - nrow(df_clean)))
+
+df_clean %>%
+    filter(f1_score < 0.5)
 
 
-print(paste("Number of outliers removed from f1_score:", nrow(df) - nrow(df_filtered_f1)))
-
-df_clean <- filter_outliers(df_filtered_f1, "energy_per_image")
-print(paste("Number of outliers removed from energy_per_image:", nrow(df_filtered_f1) - nrow(df_clean)))
 # Display the first few rows of the data frame
-head(df)
+head(df_clean)
 # Display summary statistics of the data frame
-summary(df)
+summary(df_clean)
 
-df %>%
+df_clean %>%
     group_by(architecture, training_environment) %>%
     summarise(
         min_f1_score = min(f1_score, na.rm = TRUE),
@@ -119,11 +125,30 @@ df %>%
 ## Exploratory visualization
 ### Visualize the GFLOPs of each architecture
 ```{r gflops_by_arch, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
-ggplot(df, aes(x = architecture, y = GFLOPs)) +
+ggplot(df_clean, aes(x = architecture, y = GFLOPs)) +
     geom_point() +
     labs(title = "GFLOPs across Architectures") +
     theme_minimal() +
     scale_fill_brewer(palette = "Set1")
+```
+
+### F1-score by architecture and training environment
+```{r f1_by_arch_env, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
+ggboxplot(df_clean,
+    x = "architecture", y = "f1_score",
+    fill = "training_environment",
+    palette = "Set1"
+) +
+    labs(title = "F1-score by Architecture and Training Environment")
+```
+### Energy consumption by architecture and training environment
+```{r energy_by_arch_env, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
+ggboxplot(df_clean,
+    x = "architecture", y = "energy_per_image",
+    fill = "training_environment",
+    palette = "Set1"
+) +
+    labs(title = "Energy Consumption (Joules/Image) by Architecture and Training Environment")
 ```
 
 ### Visualize energy_per_image vs. F1-score, colored by architecture
@@ -134,8 +159,9 @@ ggscatter(df_clean,
     add = "reg.line", conf.int = TRUE,
     palette = "Set1",
 ) +
+    geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
     coord_cartesian(ylim = c(0, 1)) +
-    labs(title = "energy_per_image vs. F1-score by Architecture and Training Environment")
+    labs(title = "Joules/Image vs. F1-score by Architecture and Training Environment")
 ```
 
 ### Efficiency: Megajoule per F1-score
@@ -151,25 +177,25 @@ ggbarplot(df_clean,
 ### Visualize trade-offs between F1-score and energy consumption
 ```{r trade_offs, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
 ggplot(df_clean, aes(x = energy, y = f1_score, color = architecture)) +
-  geom_point(size = 3) +
-  facet_wrap(~ training_environment) +
-  labs(
-    x = "Total energy consumption (MJ)",
-    y = "F1 Score",
-    title = "Trade-offs by Environment"
-  ) +
-  theme_pubr()
+    geom_point(size = 3) +
+    facet_wrap(~training_environment) +
+    labs(
+        x = "Total energy consumption (MJ)",
+        y = "F1 Score",
+        title = "Trade-offs by Environment"
+    ) +
+    theme_pubr()
 ```
 
 ### Pareto front analysis
 ```{r pareto_front, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
 pf <- h2o.pareto_front(
-  df_clean,
-  leaderboard_frame = NULL,
-  x_metric = "energy",
-  y_metric = "f1_score",
-  optimum = "top left",
-  title = "Pareto Front Plot",
+    df_clean,
+    leaderboard_frame = NULL,
+    x_metric = "energy",
+    y_metric = "f1_score",
+    optimum = "top left",
+    title = "Pareto Front Plot",
 )
 plot(pf)
 ```
@@ -186,34 +212,39 @@ hist(log(df$f1_score / (1 - df$f1_score)), main = "Logit")
 ```
 
 ## Statistical Analysis
-### Model 1: F1-score as a function of architecture and training environment
+
+### Correlation between F1-score and energy consumption
+```{r correlation_f1_energy}
+cor.test(df_clean$f1_score, df_clean$energy_per_image, method = "spearman")
+```
+
+### Model 1: F1-score as a function of architecture
 ```{r model1}
 df_clean$f1_logit <- log(df_clean$f1_score / (1 - df_clean$f1_score))
-model1 <- lmer(f1_score ~ architecture + (1 | training_environment), data = df_clean)
+model1 <- lm(f1_logit ~ architecture, data = df_clean)
 summary(model1)
 ```
 ### Model diagnostics for Model 1
 ```{r model1_diagnostics}
 # Check residuals
-residuals_model1 <- residuals(model1)
+residuals_model1 <- stats::residuals(model1)
 sim_res_model1 <- simulateResiduals(model1)
 # Plot residuals
 testResiduals(sim_res_model1)
-# Check homoscedasticity
-homoscedasticity_test <- leveneTest(residuals_model1 ~ architecture, data = df_clean)
-homoscedasticity_test
 ```
 ```{r check_model1, fig.height=6}
 # Check model assumptions
 model1_performance <- performance::check_model(model1)
 model1_performance
 ```
-```{r}
+```{r model1_outliers}
 # Check for outliers
 outliers_model1 <- model1_performance$outliers
 outliers_model1
+```
+```{r model1_post_hoc}
 # Post hoc tests
-post_hoc_model1 <- emmeans(model1, ~ architecture)
+post_hoc_model1 <- emmeans(model1, ~architecture)
 post_hoc_results_model1 <- summary(post_hoc_model1)
 post_hoc_results_model1
 # Plot post hoc results
@@ -224,27 +255,159 @@ post_hoc_plot_model1 <- ggplot(post_hoc_results_model1, aes(x = architecture, y 
     theme_minimal() +
     scale_fill_brewer(palette = "Set1")
 print(post_hoc_plot_model1)
+
+pairs(post_hoc_model1, adjust = "tukey") # Post hoc pairwise comparisons
 ```
 
 ### Model 1 with beta regression
 ```{r model1_beta}
 # Transform F1 to (0,1) if any 0s or 1s
 df_clean <- df_clean %>%
-    mutate(f1_trans = (f1_score * (n() - 1) + 0.5) / n())
+    group_by(architecture) %>%
+    mutate(f1_trans = (f1_score * (n() - 1) + 0.5) / n()) %>%
+    ungroup()
 
-model1_beta <- glmmTMB(f1_trans ~ architecture + (1 | training_environment), 
-                      family = beta_family(link = "logit"), 
-                      data = df_clean))
+# Original model
+model1_beta <- betareg(f1_trans ~ architecture, data = df_clean)
 summary(model1_beta)
 ```
+
 ```{r model1_beta_diagnostics}
 # Check residuals
 par(mfrow = c(2, 2))
 plot(model1_beta)
 
-sim_beta <- simulateResiduals(model1_beta)
-plot(sim_beta)
-testUniformity(sim_beta)
+resid_quant <- residuals(model1_beta, type = "quantile") # Quantile residuals
+leverage <- hatvalues(model1_beta) # Influence measures
+
+# Cook's distance analogue (optional, not always directly provided)
+# If not available: approximate influence = leverage * (residual^2)
+influence_metric <- leverage * (resid_quant^2)
+
+# Combine into a data frame
+diagnostics_df <- df_clean %>%
+    mutate(
+        residuals = resid_quant,
+        leverage = leverage,
+        influence = influence_metric,
+        obs_id = row_number()
+    )
+
+# Heuristics
+high_leverage <- diagnostics_df$leverage > (2 * mean(diagnostics_df$leverage))
+high_residuals <- abs(diagnostics_df$residuals) > 2
+high_influence <- diagnostics_df$influence > (2 * mean(diagnostics_df$influence))
+
+# Label flags
+diagnostics_df <- diagnostics_df %>%
+    mutate(flag = case_when(
+        high_leverage & high_residuals ~ "High leverage & residual",
+        high_influence ~ "High influence",
+        TRUE ~ "Normal"
+    ))
+
+
+ggplot(diagnostics_df, aes(x = leverage, y = residuals, color = flag)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    labs(title = "Residuals vs Leverage", x = "Leverage", y = "Quantile Residuals")
+
+ggplot(diagnostics_df, aes(x = obs_id, y = influence)) +
+    geom_bar(stat = "identity", fill = "steelblue") +
+    geom_hline(yintercept = 2 * mean(diagnostics_df$influence), color = "red", linetype = "dashed") +
+    labs(title = "Influence Metric (Cook's Distance Approx.)", x = "Observation", y = "Influence")
+
+diagnostics_df %>%
+    arrange(desc(influence)) %>%
+    dplyr::select(obs_id, architecture, training_environment, residuals, leverage, influence, flag) %>%
+    head(10)
+
+df_clean %>%
+    filter(row_number() %in% c(198, 219, 237, 202, 204, 230, 215, 214, 192, 212))
+
+ggplot(filter(diagnostics_df, architecture == "ResNet50"), aes(x = obs_id, y = residuals)) +
+    geom_point() +
+    geom_hline(yintercept = 0, linetype = "dashed") +
+    labs(title = "Residuals for ResNet50")
+```
+
+```{r model1_post_hoc_beta}
+# Post hoc tests for beta regression model
+post_hoc_model1_beta <- emmeans(model1_beta, ~architecture, type = "response")
+post_hoc_results_model1_beta <- summary(post_hoc_model1_beta)
+post_hoc_results_model1_beta
+# Plot post hoc results for beta regression model
+post_hoc_plot_model1_beta <- ggplot(post_hoc_results_model1_beta, aes(x = architecture, y = emmean)) +
+    geom_bar(stat = "identity", position = position_dodge()) +
+    # geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2, position = position_dodge(0.9)) +
+    labs(title = "Post Hoc Results for Model 1 (Beta Regression)", x = "Architecture", y = "Estimated Marginal Mean (F1-score)") +
+    theme_minimal() +
+    scale_fill_brewer(palette = "Set1")
+print(post_hoc_plot_model1_beta)
+
+pairs(post_hoc_model1_beta, adjust = "tukey") # Post hoc pairwise comparisons for beta regression model
+```
+
+
+### Model 1 using a GAMLSS
+```{r model1_gamlss}
+# Full model
+full_model <- gamlss(
+    f1_score ~ architecture,
+    sigma.formula = ~architecture,
+    family = BE,
+    control = gamlss.control(n.cyc = 100),
+    data = df_clean
+)
+
+summary(full_model)
+
+# Normalized quantile residuals
+plot(full_model)
+
+null_model <- gamlss(f1_score ~ 1, sigma.formula = ~1, family = BE, data = df_clean)
+
+drop1(full_model)
+
+# 2) Test architecture in the mean
+# drop1(full_model, what = "mu")
+
+model_env_only <- gamlss(f1_score ~ training_environment, sigma.formula = ~1, family = BE, data = df_clean)
+drop1(model_env_only)
+```
+
+```{r model1_gamlss_effects}
+# Get unique combinations of factors
+# Extract predicted means and SE on response scale (mu)
+emm <- emmeans(full_model, ~ architecture, type = "response",
+               at = list(sigma = mean(predict(full_model, what = "sigma", type = "response"))))
+
+# Convert emmeans to dataframe for ggplot
+emm_df <- as.data.frame(emm)
+emm_df
+
+ggplot(emm_df, aes(x = architecture, y = response)) +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL), width = 0.2) +
+  ylab("Estimated mean F1 score") +
+  xlab("Architecture") +
+  ggtitle("Effect of Model Architecture on F1 Score") +
+  theme_minimal()
+```
+
+```{r model1_gamlss_post_hoc}
+pairs_emm <- pairs(emm, adjust = "tukey")
+pairs_df <- as.data.frame(pairs_emm)
+pairs_df
+
+ggplot(pairs_df, aes(x = contrast, y = odds.ratio)) +
+  geom_point() +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+  coord_flip() +
+  ylab("Odds Ratio (F1 score)") +
+  xlab("Architecture contrasts") +
+  ggtitle("Pairwise Comparisons of Architectures (Tukey adjusted)") +
+  theme_minimal()
 ```
 
 ### Model 2: F1-score per Joule as a function of architecture and training environment
@@ -258,19 +421,18 @@ summary(model2)
 sim_res_model2 <- simulateResiduals(model2)
 # Plot residuals
 testResiduals(sim_res_model2)
-# Check homoscedasticity
-homoscedasticity_test_model2 <- leveneTest(residuals(model2) ~ architecture * training_environment, data = df_clean)
-homoscedasticity_test_model2
 ```
 ```{r fig.height=10}
 # Check model assumptions
 model2_performance <- performance::check_model(model2)
 model2_performance
 ```
+
 ```{r}
 # Check for outliers
 outliers_model2 <- model2_performance$outliers
 outliers_model2
+```
 
 ```{r model2_post_hoc}
 # Post hoc tests
@@ -290,75 +452,4 @@ post_hoc_plot_model2 <- ggplot(post_hoc_results_model2, aes(x = architecture, y 
 print(post_hoc_plot_model2)
 
 cld(post_hoc_model2, alpha = 0.05, Letters = letters, adjust = "sidak")
-```
-
-## Model Comparison
-```{r model_comparison}
-# Compare models using ANOVA
-# anova(model1, model2, model3)
-# # Compare models using AIC
-# model_aic <- AIC(model1, model2, model3)
-# model_aic <- model_aic %>%
-#     mutate(model = c("Model 1", "Model 2", "Model 3")) %>%
-#     arrange(AIC)
-# # Plot AIC comparison
-# ggplot(model_aic, aes(x = model, y = AIC)) +
-#     geom_bar(stat = "identity", fill = "steelblue") +
-#     labs(title = "AIC Comparison of Models", x = "Model", y = "AIC") +
-#     theme_minimal()
-# # Compare models using BIC
-# model_bic <- BIC(model1, model2, model3)
-# model_bic <- model_bic %>%
-#     mutate(model = c("Model 1", "Model 2", "Model 3")) %>%
-#     arrange(BIC)
-# # Plot BIC comparison
-# ggplot(model_bic, aes(x = model, y = BIC)) +
-#     geom_bar(stat = "identity", fill = "steelblue") +
-#     labs(title = "BIC Comparison of Models", x = "Model", y = "BIC") +
-#     theme_minimal()
-# # Compare models using R-squared
-# model_r2 <- data.frame(
-#     model = c("Model 1", "Model 2", "Model 3"),
-#     r_squared = c(performance::r2(model1), performance::r2(model2), performance::r2(model3))
-# )
-# # ggplot(model_r2, aes(x = model, y = r_squared)) +
-# #     geom_bar(stat = "identity", fill = "steelblue") +
-# #     labs(title = "R-squared Comparison of Models", x = "Model", y = "R-squared") +
-# #     theme_minimal()
-# # Compare models using adjusted R-squared
-# model_adj_r2 <- data.frame(
-#     model = c("Model 1", "Model 2", "Model 3"),
-#     adj_r_squared = c(performance::r2(model1), performance::r2(model2, adjusted = TRUE), performance::r2(model3, adjusted = TRUE))
-# )
-# # ggplot(model_adj_r2, aes(x = model, y = adj_r_squared)) +
-# #     geom_bar(stat = "identity", fill = "steelblue") +
-# #     labs(title = "Adjusted R-squared Comparison of Models", x = "Model", y = "Adjusted R-squared") +
-# #     theme_minimal()
-# # Compare models using RMSE
-# model_rmse <- data.frame(
-#     model = c("Model 1", "Model 2", "Model 3"),
-#     rmse = c(performance::rmse(model1), performance::rmse(model2), performance::rmse(model3))
-# )
-# ggplot(model_rmse, aes(x = model, y = rmse)) +
-#     geom_bar(stat = "identity", fill = "steelblue") +
-#     labs(title = "RMSE Comparison of Models", x = "Model", y = "RMSE") +
-#     theme_minimal()
-# # Compare models using MAE
-# model_mae <- data.frame(
-#     model = c("Model 1", "Model 2", "Model 3"),
-#     mae = c(performance::mae(model1), performance::mae(model2), performance::mae(model3))
-# )
-# ggplot(model_mae, aes(x = model, y = mae)) +
-#     geom_bar(stat = "identity", fill = "steelblue") +
-#     labs(title = "MAE Comparison of Models", x = "Model", y = "MAE") +
-#     theme_minimal()
-# # Compare models using MSE
-# model_mse <- data.frame(
-#     model = c("Model 1", "Model 2", "Model 3"),
-#     mse = c(performance::mse(model1), performance::mse(model2), performance::mse(model3))
-# )
-# ggplot(model_mse, aes(x = model, y = mse)) +
-#     geom_bar(stat = "identity", fill = "steelblue") +
-#     labs(title = "MSE Comparison of Models", x = "Model", y = "MSE") +
-#     theme_minimal()
 ```
