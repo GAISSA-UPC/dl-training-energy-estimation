@@ -1,5 +1,7 @@
 {
-    "python.formatting.provider": "black",
     "python.analysis.autoImportCompletions": true,
     "python.analysis.typeCheckingMode": "basic",
+    "[r]": {
+        "editor.defaultFormatter": "Posit.air-vscode",
+    },
 }
