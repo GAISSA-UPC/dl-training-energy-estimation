@@ -362,15 +362,11 @@ full_model <- gamlss(
 
 summary(full_model)
 
-# Normalized quantile residuals
 plot(full_model)
 
 null_model <- gamlss(f1_score ~ 1, sigma.formula = ~1, family = BE, data = df_clean)
 
 drop1(full_model)
-
-# 2) Test architecture in the mean
-# drop1(full_model, what = "mu")
 
 model_env_only <- gamlss(f1_score ~ training_environment, sigma.formula = ~1, family = BE, data = df_clean)
 drop1(model_env_only)
