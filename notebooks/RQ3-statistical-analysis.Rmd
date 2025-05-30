@@ -1,0 +1,125 @@
+---
+title: "RQ3: Is there a relationship between GPU usage and energy consumption when training DL models?"
+author: "Santiago del Rey"
+output: html_notebook
+---
+## Load libraries
+```{r setup, include=FALSE}
+library(arrow)
+library(dplyr)
+library(lme4)
+library(lmerTest) # for p-values in mixed models
+library(DHARMa)
+library(ggplot2)
+library(ggpubr) # for publication-ready plots
+```
+
+## Load data
+```{r load-data}
+df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
+    rename(training_environment = `training environment`, gpu_usage = `gpu usage (%)`, energy = `energy (MJ)`) %>%
+    filter(architecture != "inception_v3" & training_environment != "Desktop Normal User") %>%
+    mutate(
+        energy_per_image = (energy * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
+        architecture = case_match(
+            architecture,
+            "mobilenet_v2" ~ "Mobilenet V2",
+            "nasnet_mobile" ~ "NASNet Mobile",
+            "resnet50" ~ "ResNet50",
+            "xception" ~ "Xception",
+            "vgg16" ~ "VGG16"
+        ),
+        architecture = factor(architecture, levels = c("Mobilenet V2", "NASNet Mobile", "ResNet50", "Xception", "VGG16")),
+        training_environment = factor(training_environment, levels = c("Desktop ML Engineer", "Server")),
+    ) %>%
+    select(training_environment, architecture, gpu_usage, energy_per_image)
+
+filter_outliers <- function(df, variable) {
+    df %>%
+        group_by(architecture, training_environment) %>%
+        mutate(
+            Q1 = quantile(!!sym(variable), 0.25),
+            Q3 = quantile(!!sym(variable), 0.75),
+            IQR = Q3 - Q1,
+            is_outlier = !!sym(variable) < (Q1 - 1.5 * IQR) | !!sym(variable) > (Q3 + 1.5 * IQR)
+        ) %>%
+        ungroup() %>%
+        filter(!is_outlier) %>%
+        dplyr::select(-Q1, -Q3, -IQR, -is_outlier)
+}
+
+df_clean <- filter_outliers(df, "gpu_usage") %>%
+    filter_outliers("energy_per_image")
+
+```
+
+## Plot GPU usage vs energy consumption
+```{r gpu-usage-vs-energy-consumption}
+ggscatter(df_clean, x = "gpu_usage", y = "energy_per_image",
+          color = "training_environment",
+          size = 3, alpha = 0.7,
+          xlab = "GPU Usage (%)", ylab = "Normalized Energy Consumption (J/image)",
+          title = "GPU Usage vs Energy Consumption in DL Training") +
+          geom_smooth(method = "lm", se = FALSE, aes(color = training_environment)) +
+          facet_wrap(~ training_environment) +
+    theme(legend.position = "top")
+```
+
+## Statistical analysis
+### Global linear trend
+```{r global-linear-trend}
+model_linear <- lm(energy_per_image ~ gpu_usage, data = df_clean)
+summary(model_linear)
+```
+
+#### Model diagnostics
+```{r check-residuals-linear}
+# Check residuals
+par(mfrow = c(2, 2))
+plot(model_linear)
+```
+```{r check-dharma-linear}
+# Check residuals with DHARMa
+sim_linear <- simulateResiduals(model_linear)
+testResiduals(sim_linear)
+```
+
+### Interaction effects
+```{r statistical-analysis}
+# Perform linear regression
+model <- lm(energy_per_image ~ gpu_usage * training_environment * architecture, data = df_clean)
+summary(model)
+# ANOVA to check for significance
+anova(model)
+```
+
+#### Model diagnostics
+```{r check-residuals}
+# Check residuals
+par(mfrow = c(2, 2))
+plot(model)
+```
+
+```{r check-dharma}
+# Check residuals with DHARMa
+sim <- simulateResiduals(model)
+testResiduals(sim)
+```
+
+### Mixed effects model
+```{r mixed-effects-model}
+model_mixed <- lmer(energy_per_image ~ gpu_usage  + (1 | architecture/training_environment), data = df_clean)
+summary(model_mixed)
+```
+
+#### Model diagnostics
+```{r check-residuals-mixed}
+# Check residuals
+par(mfrow = c(2, 2))
+plot(model_mixed)
+```
+```{r check-dharma-mixed}
+# Check residuals with DHARMa
+sim_mixed <- simulateResiduals(model_mixed)
+testResiduals(sim_mixed)
+```
