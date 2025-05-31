@@ -411,25 +411,24 @@ ggplot(pairs_df, aes(x = contrast, y = odds.ratio)) +
 model2 <- lm(efficiency ~ architecture * training_environment, data = df_clean)
 summary(model2)
 ```
-### Model diagnostics for Model 2
+#### Model diagnostics for Model 2
 ```{r model2_diagnostics}
 # Check residuals
 sim_res_model2 <- simulateResiduals(model2)
 # Plot residuals
 testResiduals(sim_res_model2)
 ```
-```{r fig.height=10}
-# Check model assumptions
-model2_performance <- performance::check_model(model2)
-model2_performance
+```{r check-model2, fig.width=8, fig.height=10}
+check_model(model2)
 ```
 
-```{r}
-# Check for outliers
-outliers_model2 <- model2_performance$outliers
-outliers_model2
+#### Sifgnificance of interaction effects
+```{r model2_interaction}
+options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
+Anova(model2, type = 3)
 ```
 
+#### Post hoc tests for Model 2
 ```{r model2_post_hoc}
 # Post hoc tests
 post_hoc_model2 <- emmeans(model2, ~ architecture * training_environment)

@@ -19,6 +19,7 @@ required_packages <- c(
   "multcompView",
   "h2o",
   "gridExtra",
+  "ggeffects",
   "ggplot2",
   "ggfortify",
   "ggpubr"
