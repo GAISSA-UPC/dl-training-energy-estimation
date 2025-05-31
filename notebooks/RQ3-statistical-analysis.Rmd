@@ -9,7 +9,9 @@ library(arrow)
 library(dplyr)
 library(lme4)
 library(lmerTest) # for p-values in mixed models
+library(performance)
 library(DHARMa)
+library(car) # for Anova function
 library(ggplot2)
 library(ggpubr) # for publication-ready plots
 ```
@@ -17,10 +19,17 @@ library(ggpubr) # for publication-ready plots
 ## Load data
 ```{r load-data}
 df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
-    rename(training_environment = `training environment`, gpu_usage = `gpu usage (%)`, energy = `energy (MJ)`) %>%
+    rename(
+        training_environment = `training environment`,
+        gpu_usage = `gpu usage (%)`,
+        energy = `energy (MJ)`,
+        power_draw = `average gpu power (W)`,
+        tdp = `max power limit (W)`,
+    ) %>%
     filter(architecture != "inception_v3" & training_environment != "Desktop Normal User") %>%
     mutate(
         energy_per_image = (energy * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
+        gpu_usage = gpu_usage / 100, # Convert percentage to proportion
         architecture = case_match(
             architecture,
             "mobilenet_v2" ~ "Mobilenet V2",
@@ -32,7 +41,7 @@ df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumpti
         architecture = factor(architecture, levels = c("Mobilenet V2", "NASNet Mobile", "ResNet50", "Xception", "VGG16")),
         training_environment = factor(training_environment, levels = c("Desktop ML Engineer", "Server")),
     ) %>%
-    select(training_environment, architecture, gpu_usage, energy_per_image)
+    select(training_environment, architecture, gpu_usage, energy_per_image, power_draw, tdp)
 
 filter_outliers <- function(df, variable) {
     df %>%
@@ -48,31 +57,54 @@ filter_outliers <- function(df, variable) {
         dplyr::select(-Q1, -Q3, -IQR, -is_outlier)
 }
 
-df_clean <- filter_outliers(df, "gpu_usage") %>%
+df_clean_energy <- filter_outliers(df, "gpu_usage") %>%
     filter_outliers("energy_per_image")
 
+df_clean_power <- filter_outliers(df, "gpu_usage") %>%
+    filter_outliers("power_draw")
 ```
 
 ## Plot GPU usage vs energy consumption
 ```{r gpu-usage-vs-energy-consumption}
-ggscatter(df_clean, x = "gpu_usage", y = "energy_per_image",
-          color = "training_environment",
-          size = 3, alpha = 0.7,
-          xlab = "GPU Usage (%)", ylab = "Normalized Energy Consumption (J/image)",
-          title = "GPU Usage vs Energy Consumption in DL Training") +
-          geom_smooth(method = "lm", se = FALSE, aes(color = training_environment)) +
-          facet_wrap(~ training_environment) +
+ggscatter(df_clean_energy,
+    x = "gpu_usage", y = "energy_per_image",
+    color = "training_environment",
+    size = 3, alpha = 0.7,
+    xlab = "GPU Usage (%)", ylab = "Normalized Energy Consumption (J/image)",
+    title = "GPU Usage vs Energy Consumption in DL Training"
+) +
+    geom_smooth(method = "lm", se = FALSE, aes(color = training_environment)) +
+    facet_wrap(~training_environment) +
+    theme(legend.position = "top")
+```
+
+## Plot GPU usage vs average power draw
+```{r gpu-usage-vs-power-draw}
+ggscatter(df_clean_power,
+    x = "gpu_usage", y = "power_draw",
+    color = "training_environment",
+    size = 3, alpha = 0.7,
+    xlab = "GPU Usage (%)", ylab = "Average Power Draw (W)",
+    title = "GPU Usage vs Average Power Draw in DL Training"
+) +
+    # Add a line for the TDP * GPU usage
+    geom_line(aes(y = gpu_usage * tdp), linetype = "dashed", color = "black") +
+    geom_text(aes(label = paste0("TDP: ", tdp, " W")), x = min(df_clean_power$gpu_usage) + 10, y = max(df_clean_power$power_draw) * 0.9, color = "red") +
+    geom_smooth(method = "lm", se = FALSE, aes(color = training_environment)) +
+    facet_wrap(~training_environment) +
     theme(legend.position = "top")
 ```
 
 ## Statistical analysis
-### Global linear trend
+### Energy consumption analysis
+#### Global linear trend
 ```{r global-linear-trend}
-model_linear <- lm(energy_per_image ~ gpu_usage, data = df_clean)
+model_linear <- lm(energy_per_image ~ gpu_usage, data = df_clean_energy)
 summary(model_linear)
+anova(model_linear)
 ```
 
-#### Model diagnostics
+##### Model diagnostics
 ```{r check-residuals-linear}
 # Check residuals
 par(mfrow = c(2, 2))
@@ -83,17 +115,21 @@ plot(model_linear)
 sim_linear <- simulateResiduals(model_linear)
 testResiduals(sim_linear)
 ```
-
-### Interaction effects
-```{r statistical-analysis}
-# Perform linear regression
-model <- lm(energy_per_image ~ gpu_usage * training_environment * architecture, data = df_clean)
-summary(model)
-# ANOVA to check for significance
-anova(model)
+```{r check-model-linear, fig.width=8, fig.height=10}
+check_model(model_linear)
 ```
 
-#### Model diagnostics
+#### Interaction effects
+```{r statistical-analysis}
+# Perform linear regression
+model <- lm(energy_per_image ~ gpu_usage * training_environment * architecture, data = df_clean_energy)
+summary(model)
+# ANOVA to check for significance
+options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
+Anova(model, type = 3)
+```
+
+##### Model diagnostics
 ```{r check-residuals}
 # Check residuals
 par(mfrow = c(2, 2))
@@ -106,13 +142,15 @@ sim <- simulateResiduals(model)
 testResiduals(sim)
 ```
 
-### Mixed effects model
+#### Mixed effects model
 ```{r mixed-effects-model}
-model_mixed <- lmer(energy_per_image ~ gpu_usage  + (1 | architecture/training_environment), data = df_clean)
+model_mixed <- lmer(energy_per_image ~ gpu_usage + (1 | architecture) + (1 | training_environment), data = df_clean_energy)
 summary(model_mixed)
+options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
+Anova(model_mixed, type = 3)
 ```
 
-#### Model diagnostics
+##### Model diagnostics
 ```{r check-residuals-mixed}
 # Check residuals
 par(mfrow = c(2, 2))
@@ -122,4 +160,74 @@ plot(model_mixed)
 # Check residuals with DHARMa
 sim_mixed <- simulateResiduals(model_mixed)
 testResiduals(sim_mixed)
+```
+
+### Power draw analysis
+#### Global linear trend
+```{r global-linear-trend-power-draw}
+model_linear_power_draw <- lm(power_draw ~ gpu_usage, data = df_clean_power)
+summary(model_linear_power_draw)
+anova(model_linear_power_draw)
+```
+##### Model diagnostics for power draw
+```{r check-residuals-linear-power-draw}
+# Check residuals
+par(mfrow = c(2, 2))
+plot(model_linear_power_draw)
+```
+```{r check-dharma-linear-power-draw}
+# Check residuals with DHARMa
+sim_linear_power_draw <- simulateResiduals(model_linear_power_draw)
+testResiduals(sim_linear_power_draw)
+```
+
+#### Interaction effects for power draw
+```{r model-power-draw}
+model_power_draw <- lm(power_draw ~ gpu_usage * training_environment * architecture, data = df_clean_power)
+summary(model_power_draw)
+```
+
+```{r anova-power-draw}
+options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
+Anova(model_power_draw, type = 3)
+```
+
+##### Model diagnostics for power draw
+```{r check-residuals-power-draw}
+# Check residuals
+par(mfrow = c(2, 2))
+plot(model_power_draw)
+```
+```{r check-dharma-power-draw}
+# Check residuals with DHARMa
+sim_power_draw <- simulateResiduals(model_power_draw)
+testResiduals(sim_power_draw)
+```
+```{r check-model-power-draw, fig.width=8, fig.height=10}
+check_model(model_power_draw)
+```
+
+#### Mixed effects model for power draw
+```{r mixed-effects-model-power-draw}
+model_mixed_power_draw <- lmer(power_draw ~ gpu_usage * training_environment * architecture + (1 | tdp), data = df_clean_power)
+summary(model_mixed_power_draw)
+```
+
+```{r anova-mixed-power-draw}
+options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
+Anova(model_mixed_power_draw, type = 3)
+```
+##### Model diagnostics for mixed effects model power draw
+```{r check-residuals-mixed-power-draw}
+# Check residuals
+par(mfrow = c(2, 2))
+plot(model_mixed_power_draw)
+```
+```{r check-dharma-mixed-power-draw}
+# Check residuals with DHARMa
+sim_mixed_power_draw <- simulateResiduals(model_mixed_power_draw)
+testResiduals(sim_mixed_power_draw)
+```
+```{r check-model-mixed-power-draw, fig.width=8, fig.height=10}
+check_model(model_mixed_power_draw)
 ```
