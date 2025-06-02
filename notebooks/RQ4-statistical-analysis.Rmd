@@ -130,11 +130,47 @@ ggboxplot(
     color = "Input Size"
   ) +
   theme_pubr()
+```
 
-ggboxplot(
+```{r boxplot-allocated-ram, fig.width=15}
+allocated_ram_energy <- ggboxplot(
   df_allocated_ram_energy,
-  x = "allocated_ram", y = "energy_per_image", palette = "jco"
-)
+  x = "allocated_ram", y = "energy_per_image", palette = "jco", fill = "allocated_ram"
+) +
+  # coord_flip() +
+  labs(
+    x = "Allocated RAM (GB)",
+    y = "Energy Consumption (J/image)",
+  )
+
+allocated_ram_time <- ggboxplot(
+  df_allocated_ram_time,
+  x = "allocated_ram", y = "training_duration", palette = "jco", fill = "allocated_ram"
+) +
+  # coord_flip() +
+  labs(
+    x = "Allocated RAM (GB)",
+    y = "Training Duration (minutes)",
+  )
+
+allocated_ram_ram <- ggboxplot(
+  df_allocated_ram_ram,
+  x = "allocated_ram", y = "used_ram", palette = "jco", fill = "allocated_ram"
+) +
+  # coord_flip() +
+  labs(
+    x = "Allocated RAM (GB)",
+    y = "Average RAM Used (MB)",
+  )
+
+allocated_ram_plot <- ((plot_spacer() + guide_area() + plot_spacer()) / (allocated_ram_energy + allocated_ram_time + allocated_ram_ram)) +
+  plot_layout(axes = "collect", guides = "collect") +
+  plot_annotation(
+    title = "Energy Consumption, Training Duration, and RAM Usage by Allocated RAM",
+    theme = theme(plot.title = element_text(hjust = 0.5))
+  )
+
+allocated_ram_plot
 ```
 
 ## Statistical analysis of the effects of batch size, input size, and dataset on energy consumption
@@ -276,13 +312,13 @@ testResiduals(sim_res_ram)
 
 #### Post hoc tests for allocated RAM
 ```{r post-hoc-allocated-ram}
-emm_ram <- emmeans(model_lm_ram, ~ allocated_ram)
+emm_ram <- emmeans(model_lm_ram, ~allocated_ram)
 emm_ram
 pairs(emm_ram, adjust = "tukey")
 
 eff_size(emm_ram, sigma = sigma(model_lm_ram), edf = df.residual(model_lm_ram))
 
-plot(emm_ram, comparisons=TRUE) +
+plot(emm_ram, comparisons = TRUE) +
   labs(
     title = "Estimated Marginal Means of Energy by Allocated RAM",
     x = "Predicted Energy Consumption (J/image)",
@@ -305,11 +341,11 @@ testResiduals(sim_res_duration)
 ```
 #### Post hoc tests for allocated RAM on training duration
 ```{r post-hoc-training-duration}
-emm_duration <- emmeans(model_lm_duration, ~ allocated_ram)
+emm_duration <- emmeans(model_lm_duration, ~allocated_ram)
 emm_duration
 pairs(emm_duration, adjust = "tukey")
 eff_size(emm_duration, sigma = sigma(model_lm_duration), edf = df.residual(model_lm_duration))
-plot(emm_duration, comparisons=TRUE) +
+plot(emm_duration, comparisons = TRUE) +
   labs(
     title = "Estimated Marginal Means of Training Duration by Allocated RAM",
     x = "Predicted Training Duration (minutes)",
@@ -333,11 +369,11 @@ testResiduals(sim_res_ram_used)
 ```
 #### Post hoc tests for allocated RAM on average RAM used
 ```{r post-hoc-average-ram-used}
-emm_ram_used <- emmeans(model_lm_ram_used, ~ allocated_ram)
+emm_ram_used <- emmeans(model_lm_ram_used, ~allocated_ram)
 emm_ram_used
 pairs(emm_ram_used, adjust = "tukey")
 eff_size(emm_ram_used, sigma = sigma(model_lm_ram_used), edf = df.residual(model_lm_ram_used))
-plot(emm_ram_used, comparisons=TRUE) +
+plot(emm_ram_used, comparisons = TRUE) +
   labs(
     title = "Estimated Marginal Means of Average RAM Used by Allocated RAM",
     x = "Predicted Average RAM Used (MB)",
