@@ -7,42 +7,43 @@ author: "Santiago del Rey"
 ## Load libraries
 ```{r setup, include=FALSE}
 library(arrow)
-library(dplyr)
 library(lme4)
-library(nlme)
 library(lmerTest) # p-values for lmer
-library(MuMIn)
 library(DHARMa) # residual diagnostics for mixed models
-library(performance) # check assumptions
+library(performance)
 library(emmeans) # post hoc tests
 library(effects)
 library(broom)
 library(car)
-library(rstatix)
-library(effectsize)
 library(patchwork) # for combining plots
 library(ggplot2)
 library(ggpubr) # for publication-ready plots
 library(tikzDevice)
+library(dplyr)
 ```
 
 ## Load data
 ```{r load-data}
 df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
   rename(
-    training_environment = `training environment`,
     energy = `energy (MJ)`,
+    training_duration = `training duration (h)`,
+    used_ram = `average ram used (MB)`,
     batch_size = `batch size`,
     image_size = `image size`,
     allocated_ram = `total ram (GB)`,
+    training_environment = `training environment`,
   ) %>%
   filter(architecture == "inception_v3") %>%
   mutate(
     energy_per_image = (energy * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
+    training_duration = training_duration * 60, # Convert hours to minutes
+    batch_size = factor(batch_size, levels = c("32", "64", "256")),
     input_size = factor(image_size, levels = c("(75, 75)", "(128, 128)", "(224, 224)")),
+    allocated_ram = factor(allocated_ram, levels = c("8", "16", "24", "32")),
     dataset = factor(`dataset`),
   ) %>%
-  select(energy_per_image, batch_size, input_size, dataset, training_environment, allocated_ram)
+  select(energy_per_image, training_duration, used_ram, batch_size, input_size, dataset, training_environment, allocated_ram)
 ```
 
 ## Visualize the data
@@ -50,7 +51,7 @@ df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumpti
 ```{r data-summary}
 df_batch_input <- df %>%
   filter(training_environment == "Server" & allocated_ram == 16) %>%
-  group_by(batch_size, input_size) %>%
+  group_by(batch_size, input_size, dataset) %>%
   mutate(
     Q1 = quantile(energy_per_image, 0.25),
     Q3 = quantile(energy_per_image, 0.75),
@@ -65,7 +66,7 @@ df_batch_input %>%
   group_by(batch_size, input_size, dataset) %>%
   get_summary_stats(energy_per_image, type = "mean_sd")
 
-df_allocated_ram <- df %>%
+df_allocated_ram_energy <- df %>%
   filter(batch_size == "256" & input_size == "(128, 128)" & dataset == "stanford_dogs" & training_environment == "Server") %>%
   group_by(allocated_ram) %>%
   mutate(
@@ -78,9 +79,40 @@ df_allocated_ram <- df %>%
   filter(!is_outlier) %>%
   select(-Q1, -Q3, -IQR, -is_outlier)
 
-df_allocated_ram %>%
+df_allocated_ram_energy %>%
   group_by(allocated_ram) %>%
   get_summary_stats(energy_per_image, type = "mean_sd")
+
+df_allocated_ram_time <- df %>%
+  filter(batch_size == "256" & input_size == "(128, 128)" & dataset == "stanford_dogs" & training_environment == "Server") %>%
+  group_by(allocated_ram) %>%
+  mutate(
+    Q1 = quantile(training_duration, 0.25),
+    Q3 = quantile(training_duration, 0.75),
+    IQR = Q3 - Q1,
+    is_outlier = training_duration < (Q1 - 1.5 * IQR) | training_duration > (Q3 + 1.5 * IQR)
+  ) %>%
+  ungroup() %>%
+  filter(!is_outlier) %>%
+  select(-Q1, -Q3, -IQR, -is_outlier)
+df_allocated_ram_time %>%
+  group_by(allocated_ram) %>%
+  get_summary_stats(training_duration, type = "mean_sd")
+df_allocated_ram_ram <- df %>%
+  filter(batch_size == "256" & input_size == "(128, 128)" & dataset == "stanford_dogs" & training_environment == "Server") %>%
+  group_by(allocated_ram) %>%
+  mutate(
+    Q1 = quantile(used_ram, 0.25),
+    Q3 = quantile(used_ram, 0.75),
+    IQR = Q3 - Q1,
+    is_outlier = used_ram < (Q1 - 1.5 * IQR) | used_ram > (Q3 + 1.5 * IQR)
+  ) %>%
+  ungroup() %>%
+  filter(!is_outlier) %>%
+  select(-Q1, -Q3, -IQR, -is_outlier)
+df_allocated_ram_ram %>%
+  group_by(allocated_ram) %>%
+  get_summary_stats(used_ram, type = "mean_sd")
 ```
 
 ### Boxplot of energy consumption
@@ -100,7 +132,7 @@ ggboxplot(
   theme_pubr()
 
 ggboxplot(
-  df_allocated_ram,
+  df_allocated_ram_energy,
   x = "allocated_ram", y = "energy_per_image", palette = "jco"
 )
 ```
@@ -110,7 +142,11 @@ ggboxplot(
 ```{r linear-model}
 model_lm <- lm(energy_per_image ~ batch_size * input_size * dataset, data = df_batch_input)
 summary(model_lm)
-anova(model_lm)
+```
+
+```{r anova-linear-model}
+options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
+Anova(model_lm) # Type III ANOVA for linear models
 ```
 
 #### Check assumptions of the linear model
@@ -119,11 +155,6 @@ sim_res <- simulateResiduals(model_lm)
 testResiduals(sim_res)
 ```
 
-```{r check-assumptions, fig.width=10, fig.height=10}
-check_model(model_lm)
-```
-
-
 ### Linear mixed model
 ```{r linear-mixed-model}
 model_lmm <- lmer(
@@ -131,17 +162,17 @@ model_lmm <- lmer(
   data = df_batch_input,
 )
 summary(model_lmm)
+```
 
-anova(model_lmm)
+```{r anova-mixed-model}
+options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
+Anova(model_lmm, type = 3) # Type III ANOVA for mixed models
 ```
 
 #### Check assumptions of the linear mixed model
 ```{r check-dharma-mixed}
 sim_res_lmm <- simulateResiduals(model_lmm)
 testResiduals(sim_res_lmm)
-```
-```{r check-assumptions-mixed, fig.width=10, fig.height=10}
-check_model(model_lmm)
 ```
 
 ### Generalized linear model with Gamma distribution
@@ -152,16 +183,17 @@ model_glm <- glm(
   family = Gamma(link = "log")
 )
 summary(model_glm)
-anova(model_glm)
+```
+
+```{r anova-glm}
+options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
+Anova(model_glm) # Type III ANOVA for generalized linear models
 ```
 
 #### Check assumptions of the generalized linear model
 ```{r check-dharma-glm}
 sim_res_glm <- simulateResiduals(model_glm)
 testResiduals(sim_res_glm)
-```
-```{r check-assumptions-glm, fig.width=10, fig.height=10}
-check_model(model_glm)
 ```
 
 ### Compare models
@@ -173,7 +205,7 @@ compare_performance(model_lm, model_lmm, model_glm, rank = TRUE)
 Estimate the effect sizes of the fixed effects in the model.
 ```{r effect-sizes}
 # Tidy the model for plotting
-tidy_lm <- broom::tidy(model_glm)
+tidy_lm <- broom::tidy(model_lm)
 
 # Filter out intercept and sort by absolute effect size
 tidy_lm_filtered <- tidy_lm[tidy_lm$term != "(Intercept)", ]
@@ -196,13 +228,12 @@ eff_plot <- ggplot(tidy_lm_filtered, aes(x = reorder(term, abs(estimate)), y = e
 
 Estimate marginal means for the interaction between batch size and input size, conditioned on the dataset.
 ```{r post-hoc}
-emm_lm <- emmeans(model_glm, ~ batch_size * input_size | dataset)
+emm_lm <- emmeans(model_lm, ~ batch_size * input_size | dataset)
 emm_lm
 ```
 
 ```{r post-hoc-pairs}
-pairs(emm_lm, by = c("dataset", "input_size"), adjust = "tukey")
-pairs(emm_lm, by = c("dataset", "input_size"), adjust = "tukey")
+pairs(emm_lm, by = c("dataset", "batch_size"), adjust = "tukey")
 ```
 
 Plot the estimated marginal means.
@@ -226,4 +257,91 @@ combined_plot <- (eff_plot | emm_plot) +
   plot_annotation(title = "Energy Consumption Analysis", theme = theme(plot.title = element_text(hjust = 0.5)))
 
 combined_plot
+```
+
+## Statistical analysis of the effects of allocated RAM on energy consumption
+### Linear model with allocated RAM as a fixed effect
+```{r linear-model-allocated-ram}
+model_lm_ram <- lm(energy_per_image ~ allocated_ram, data = df_allocated_ram_energy)
+summary(model_lm_ram)
+```
+```{r anova-linear-model-allocated-ram}
+anova(model_lm_ram) # Type I ANOVA for linear models
+```
+#### Check assumptions of the linear model with allocated RAM
+```{r check-dharma-allocated-ram}
+sim_res_ram <- simulateResiduals(model_lm_ram)
+testResiduals(sim_res_ram)
+```
+
+#### Post hoc tests for allocated RAM
+```{r post-hoc-allocated-ram}
+emm_ram <- emmeans(model_lm_ram, ~ allocated_ram)
+emm_ram
+pairs(emm_ram, adjust = "tukey")
+
+eff_size(emm_ram, sigma = sigma(model_lm_ram), edf = df.residual(model_lm_ram))
+
+plot(emm_ram, comparisons=TRUE) +
+  labs(
+    title = "Estimated Marginal Means of Energy by Allocated RAM",
+    x = "Predicted Energy Consumption (J/image)",
+    y = "Allocated RAM (GB)",
+  ) +
+  theme_pubr()
+```
+
+## Statistical analysis of the effects of allocated RAM on training duration
+### Linear model with allocated RAM as a fixed effect
+```{r linear-model-training-duration}
+model_lm_duration <- lm(training_duration ~ allocated_ram, data = df_allocated_ram_time)
+summary(model_lm_duration)
+anova(model_lm_duration) # Type I ANOVA for linear models
+```
+#### Check assumptions of the linear model with allocated RAM
+```{r check-dharma-training-duration}
+sim_res_duration <- simulateResiduals(model_lm_duration)
+testResiduals(sim_res_duration)
+```
+#### Post hoc tests for allocated RAM on training duration
+```{r post-hoc-training-duration}
+emm_duration <- emmeans(model_lm_duration, ~ allocated_ram)
+emm_duration
+pairs(emm_duration, adjust = "tukey")
+eff_size(emm_duration, sigma = sigma(model_lm_duration), edf = df.residual(model_lm_duration))
+plot(emm_duration, comparisons=TRUE) +
+  labs(
+    title = "Estimated Marginal Means of Training Duration by Allocated RAM",
+    x = "Predicted Training Duration (minutes)",
+    y = "Allocated RAM (GB)",
+  ) +
+  theme_pubr()
+```
+
+## Statistical analysis of the effects of allocated RAM on average RAM used
+### Linear model with allocated RAM as a fixed effect
+```{r linear-model-average-ram-used}
+model_lm_ram_used <- lm(used_ram ~ allocated_ram, data = df_allocated_ram_ram)
+summary(model_lm_ram_used)
+anova(model_lm_ram_used) # Type I ANOVA for linear models
+```
+
+#### Check assumptions of the linear model with allocated RAM
+```{r check-dharma-average-ram-used}
+sim_res_ram_used <- simulateResiduals(model_lm_ram_used)
+testResiduals(sim_res_ram_used)
+```
+#### Post hoc tests for allocated RAM on average RAM used
+```{r post-hoc-average-ram-used}
+emm_ram_used <- emmeans(model_lm_ram_used, ~ allocated_ram)
+emm_ram_used
+pairs(emm_ram_used, adjust = "tukey")
+eff_size(emm_ram_used, sigma = sigma(model_lm_ram_used), edf = df.residual(model_lm_ram_used))
+plot(emm_ram_used, comparisons=TRUE) +
+  labs(
+    title = "Estimated Marginal Means of Average RAM Used by Allocated RAM",
+    x = "Predicted Average RAM Used (MB)",
+    y = "Allocated RAM (GB)",
+  ) +
+  theme_pubr()
 ```
