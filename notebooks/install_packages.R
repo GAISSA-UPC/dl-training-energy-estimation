@@ -10,9 +10,11 @@ required_packages <- c(
   "gamlss",
   "glmmTMB",
   "DHARMa",
+  "effects",
   "broom",
   "car",
   "MASS",
+  "MuMIn",
   "performance",
   "emmeans",
   "multcomp",
@@ -22,7 +24,9 @@ required_packages <- c(
   "ggeffects",
   "ggplot2",
   "ggfortify",
-  "ggpubr"
+  "ggpubr",
+  "patchwork",
+  "tikzDevice"
 )
 
 installed_packages <- rownames(installed.packages())

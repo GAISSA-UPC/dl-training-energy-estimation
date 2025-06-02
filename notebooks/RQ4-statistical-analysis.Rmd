@@ -5,113 +5,225 @@ author: "Santiago del Rey"
 ---
 
 ## Load libraries
-```{r include=FALSE}
+```{r setup, include=FALSE}
 library(arrow)
 library(dplyr)
-library(ggplot2)
-library(ggpubr) # for publication-ready plots
 library(lme4)
 library(nlme)
 library(lmerTest) # p-values for lmer
+library(MuMIn)
+library(DHARMa) # residual diagnostics for mixed models
 library(performance) # check assumptions
 library(emmeans) # post hoc tests
+library(effects)
+library(broom)
 library(car)
 library(rstatix)
 library(effectsize)
-library(minpack.lm)
-library(boot)
+library(patchwork) # for combining plots
+library(ggplot2)
+library(ggpubr) # for publication-ready plots
+library(tikzDevice)
 ```
 
 ## Load data
-```{r}
+```{r load-data}
 df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
-  filter(architecture == "inception_v3" & `training environment` == "Server") %>%
-  mutate(
-    energy = (`energy (MJ)` * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
-    batch_size = factor(`batch size`),
-    input_size = factor(`image size`),
-    dataset = factor(`dataset`),
-    gpu_usage = `gpu usage (%)`,
+  rename(
+    training_environment = `training environment`,
+    energy = `energy (MJ)`,
+    batch_size = `batch size`,
+    image_size = `image size`,
+    allocated_ram = `total ram (GB)`,
   ) %>%
-  group_by(batch_size, input_size, dataset) %>%
+  filter(architecture == "inception_v3") %>%
   mutate(
-    subject_id = factor(row_number()),
-  )
+    energy_per_image = (energy * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
+    input_size = factor(image_size, levels = c("(75, 75)", "(128, 128)", "(224, 224)")),
+    dataset = factor(`dataset`),
+  ) %>%
+  select(energy_per_image, batch_size, input_size, dataset, training_environment, allocated_ram)
 ```
 
-## Data summary
-```{r}
-df %>%
+## Visualize the data
+### Data summary
+```{r data-summary}
+df_batch_input <- df %>%
+  filter(training_environment == "Server" & allocated_ram == 16) %>%
+  group_by(batch_size, input_size) %>%
+  mutate(
+    Q1 = quantile(energy_per_image, 0.25),
+    Q3 = quantile(energy_per_image, 0.75),
+    IQR = Q3 - Q1,
+    is_outlier = energy_per_image < (Q1 - 1.5 * IQR) | energy_per_image > (Q3 + 1.5 * IQR)
+  ) %>%
+  ungroup() %>%
+  filter(!is_outlier) %>%
+  select(-Q1, -Q3, -IQR, -is_outlier)
+
+df_batch_input %>%
   group_by(batch_size, input_size, dataset) %>%
-  get_summary_stats(energy, type = "mean_sd")
+  get_summary_stats(energy_per_image, type = "mean_sd")
+
+df_allocated_ram <- df %>%
+  filter(batch_size == "256" & input_size == "(128, 128)" & dataset == "stanford_dogs" & training_environment == "Server") %>%
+  group_by(allocated_ram) %>%
+  mutate(
+    Q1 = quantile(energy_per_image, 0.25),
+    Q3 = quantile(energy_per_image, 0.75),
+    IQR = Q3 - Q1,
+    is_outlier = energy_per_image < (Q1 - 1.5 * IQR) | energy_per_image > (Q3 + 1.5 * IQR)
+  ) %>%
+  ungroup() %>%
+  filter(!is_outlier) %>%
+  select(-Q1, -Q3, -IQR, -is_outlier)
+
+df_allocated_ram %>%
+  group_by(allocated_ram) %>%
+  get_summary_stats(energy_per_image, type = "mean_sd")
 ```
 
-## Visualize data
-```{r}
-bxp <- ggboxplot(
-  df,
-  x = "input_size", y = "energy",
-  color = "batch_size", palette = "jco"
+### Boxplot of energy consumption
+```{r energy-boxplot}
+ggboxplot(
+  df_batch_input,
+  x = "batch_size", y = "energy_per_image",
+  color = "input_size", palette = "jco"
+) +
+  facet_wrap(~dataset) +
+  labs(
+    title = "Energy Consumption by Batch Size and Input Size",
+    x = "Batch Size",
+    y = "Energy Consumption (J/image)",
+    color = "Input Size"
+  ) +
+  theme_pubr()
+
+ggboxplot(
+  df_allocated_ram,
+  x = "allocated_ram", y = "energy_per_image", palette = "jco"
 )
-bxp
 ```
 
-## Create a QQ plot for each cell of the design
-```{r}
-ggqqplot(df, "energy", ggtheme = theme_bw()) +
-  facet_grid(batch_size ~ input_size, labeller = "label_both")
+## Statistical analysis of the effects of batch size, input size, and dataset on energy consumption
+### Linear model with dataset as a fixed effect
+```{r linear-model}
+model_lm <- lm(energy_per_image ~ batch_size * input_size * dataset, data = df_batch_input)
+summary(model_lm)
+anova(model_lm)
 ```
 
-## Create a linear mixed model
-Create a linear mixed model to analyze the energy consumption based on batch size and input size, with random effects for subject and dataset.
-```{r}
-df <- ungroup(df) # Ungroup the data to avoid issues with lme
-model_lmm <- lme(
-  energy ~ batch_size * input_size,
-  random = ~ 1 | subject_id / dataset,
-  data = df,
-  na.action = na.omit
+#### Check assumptions of the linear model
+```{r check-dharma}
+sim_res <- simulateResiduals(model_lm)
+testResiduals(sim_res)
+```
+
+```{r check-assumptions, fig.width=10, fig.height=10}
+check_model(model_lm)
+```
+
+
+### Linear mixed model
+```{r linear-mixed-model}
+model_lmm <- lmer(
+  energy_per_image ~ batch_size * input_size + (1 | dataset),
+  data = df_batch_input,
 )
 summary(model_lmm)
 
 anova(model_lmm)
 ```
 
-## Post hoc tests
+#### Check assumptions of the linear mixed model
+```{r check-dharma-mixed}
+sim_res_lmm <- simulateResiduals(model_lmm)
+testResiduals(sim_res_lmm)
+```
+```{r check-assumptions-mixed, fig.width=10, fig.height=10}
+check_model(model_lmm)
+```
+
+### Generalized linear model with Gamma distribution
+```{r generalized-linear-model}
+model_glm <- glm(
+  energy_per_image ~ batch_size * input_size * dataset,
+  data = df_batch_input,
+  family = Gamma(link = "log")
+)
+summary(model_glm)
+anova(model_glm)
+```
+
+#### Check assumptions of the generalized linear model
+```{r check-dharma-glm}
+sim_res_glm <- simulateResiduals(model_glm)
+testResiduals(sim_res_glm)
+```
+```{r check-assumptions-glm, fig.width=10, fig.height=10}
+check_model(model_glm)
+```
+
+### Compare models
+```{r model-comparison-glm}
+compare_performance(model_lm, model_lmm, model_glm, rank = TRUE)
+```
+
+### Post hoc tests
 Estimate the effect sizes of the fixed effects in the model.
-```{r}
-eta_squared(model_lmm, partial = TRUE)
+```{r effect-sizes}
+# Tidy the model for plotting
+tidy_lm <- broom::tidy(model_glm)
+
+# Filter out intercept and sort by absolute effect size
+tidy_lm_filtered <- tidy_lm[tidy_lm$term != "(Intercept)", ]
+tidy_lm_filtered <- tidy_lm_filtered[order(abs(tidy_lm_filtered$estimate), decreasing = TRUE), ]
+# Filter out terms with NA estimates
+tidy_lm_filtered <- tidy_lm_filtered %>%
+  filter(!is.na(estimate))
+
+# Plot
+eff_plot <- ggplot(tidy_lm_filtered, aes(x = reorder(term, abs(estimate)), y = estimate)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +
+  labs(
+    title = "Effect Sizes",
+    x = "Term",
+    y = "Estimate (Energy Consumption Impact)"
+  ) +
+  theme_pubr()
 ```
 
-```{r}
-r2(model_lmm)
+Estimate marginal means for the interaction between batch size and input size, conditioned on the dataset.
+```{r post-hoc}
+emm_lm <- emmeans(model_glm, ~ batch_size * input_size | dataset)
+emm_lm
 ```
 
-
-Estimate marginal means for the interaction between batch size and input size.
-```{r}
-emm <- emmeans(model_lmm, ~ batch_size * input_size)
-summary(emm)
-```
-
-Pairwise comparisons for the interaction between batch size and input size.
-```{r}
-pairs(emm, by = "input_size", adjust = "tukey")
-pairs(emm, by = "batch_size", adjust = "tukey")
+```{r post-hoc-pairs}
+pairs(emm_lm, by = c("dataset", "input_size"), adjust = "tukey")
+pairs(emm_lm, by = c("dataset", "input_size"), adjust = "tukey")
 ```
 
 Plot the estimated marginal means.
-```{r}
-emm_df <- as.data.frame(emm)
+```{r fig.height=8, fig.width=15}
+emm_df <- as.data.frame(emm_lm) %>%
+  filter(!is.na(emmean))
 
-ggplot(emm_df, aes(x = batch_size, y = emmean, group = input_size, color = input_size)) +
+emm_plot <- ggplot(emm_df, aes(x = batch_size, y = emmean, group = input_size, color = input_size)) +
   geom_line(linewidth = 1) +
   geom_point(size = 3) +
+  facet_wrap(~dataset) +
   labs(
-    title = "Estimated Marginal Means of Energy (Desktop)",
+    title = "Estimated Marginal Means of Energy",
     x = "Batch Size",
     y = "Predicted Energy Consumption",
     color = "Input Size"
   ) +
-  theme_minimal()
+  theme_pubr()
+
+combined_plot <- (eff_plot | emm_plot) +
+  plot_annotation(title = "Energy Consumption Analysis", theme = theme(plot.title = element_text(hjust = 0.5)))
+
+combined_plot
 ```
