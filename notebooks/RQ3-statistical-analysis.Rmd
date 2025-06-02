@@ -28,7 +28,7 @@ df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumpti
     ) %>%
     filter(architecture != "inception_v3" & training_environment != "Desktop Normal User") %>%
     mutate(
-        energy_per_image = (energy * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
+        energy_per_image = (energy * 1000000) / `total seen images`, # Convert MJ to KJ and normalize by total seen images
         gpu_usage = gpu_usage / 100, # Convert percentage to proportion
         architecture = case_match(
             architecture,
