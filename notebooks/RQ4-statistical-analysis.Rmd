@@ -4,7 +4,6 @@ output: html_notebook
 author: "Santiago del Rey"
 ---
 
-## Load libraries
 ```{r setup, include=FALSE}
 library(arrow)
 library(lme4)
@@ -18,8 +17,41 @@ library(car)
 library(patchwork) # for combining plots
 library(ggplot2)
 library(ggpubr) # for publication-ready plots
-library(tikzDevice)
+library(viridis)
+library(showtext)
 library(dplyr)
+
+# For discrete variables
+viridis_scheme <- "turbo"
+options(
+  ggplot2.discrete.fill = function(...) scale_fill_viridis_d(..., option = viridis_scheme),
+  ggplot2.discrete.colour = function(...) scale_colour_viridis_d(..., option = viridis_scheme)
+)
+
+# For continuous variables
+options(
+  ggplot2.continuous.fill = function(...) scale_fill_viridis_c(..., option = viridis_scheme),
+  ggplot2.continuous.colour = function(...) scale_colour_viridis_c(..., option = viridis_scheme)
+)
+
+font_add("CMU Serif", regular = "cmunrm.otf")  # You need the font installed
+showtext_auto()
+
+theme_set(
+  theme_pubr(base_family = "CMU Serif") +
+    theme(
+      plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+      axis.title = element_text(size = 10),
+      axis.text = element_text(size = 9),
+      legend.text = element_text(size = 9),
+      strip.text = element_text(size = 10)
+    )
+)
+
+fig_dir <- "../reports/figures/RQ4/"
+if (!dir.exists(fig_dir)) {
+  dir.create(fig_dir, recursive = TRUE)
+}
 ```
 
 ## Load data
@@ -41,7 +73,7 @@ df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumpti
     batch_size = factor(batch_size, levels = c("32", "64", "256")),
     input_size = factor(image_size, levels = c("(75, 75)", "(128, 128)", "(224, 224)")),
     allocated_ram = factor(allocated_ram, levels = c("8", "16", "24", "32")),
-    dataset = factor(`dataset`),
+    dataset = factor(dataset),
   ) %>%
   select(energy_per_image, training_duration, used_ram, batch_size, input_size, dataset, training_environment, allocated_ram)
 ```
@@ -117,60 +149,62 @@ df_allocated_ram_ram %>%
 
 ### Boxplot of energy consumption
 ```{r energy-boxplot}
-ggboxplot(
-  df_batch_input,
-  x = "batch_size", y = "energy_per_image",
-  color = "input_size", palette = "jco"
-) +
+ggplot(df_batch_input, aes(x = batch_size, y = energy_per_image, color = input_size)) +
+  geom_boxplot() +
   facet_wrap(~dataset) +
   labs(
     title = "Energy Consumption by Batch Size and Input Size",
     x = "Batch Size",
     y = "Energy Consumption (J/image)",
     color = "Input Size"
-  ) +
-  theme_pubr()
+  )
 ```
 
 ```{r boxplot-allocated-ram, fig.width=15}
-allocated_ram_energy <- ggboxplot(
-  df_allocated_ram_energy,
-  x = "allocated_ram", y = "energy_per_image", palette = "jco", fill = "allocated_ram"
-) +
-  # coord_flip() +
+allocated_ram_energy <- ggplot(df_allocated_ram_energy, aes(x = allocated_ram, y = energy_per_image)) +
+  geom_boxplot() +
   labs(
     x = "Allocated RAM (GB)",
-    y = "Energy Consumption (J/image)",
+    y = "Energy Consumption (J/image)"
   )
 
-allocated_ram_time <- ggboxplot(
-  df_allocated_ram_time,
-  x = "allocated_ram", y = "training_duration", palette = "jco", fill = "allocated_ram"
-) +
-  # coord_flip() +
+allocated_ram_time <- ggplot(df_allocated_ram_time, aes(x = allocated_ram, y = training_duration)) +
+  geom_boxplot() +
   labs(
     x = "Allocated RAM (GB)",
-    y = "Training Duration (minutes)",
+    y = "Training Duration (minutes)"
   )
 
-allocated_ram_ram <- ggboxplot(
-  df_allocated_ram_ram,
-  x = "allocated_ram", y = "used_ram", palette = "jco", fill = "allocated_ram"
-) +
-  # coord_flip() +
+allocated_ram_ram <- ggplot(df_allocated_ram_ram, aes(x = allocated_ram, y = used_ram)) +
+  geom_boxplot() +
   labs(
     x = "Allocated RAM (GB)",
-    y = "Average RAM Used (MB)",
+    y = "Average RAM Used (MB)"
   )
 
-allocated_ram_plot <- ((plot_spacer() + guide_area() + plot_spacer()) / (allocated_ram_energy + allocated_ram_time + allocated_ram_ram)) +
-  plot_layout(axes = "collect", guides = "collect") +
+ram_impact_plot <- (allocated_ram_energy | allocated_ram_time | allocated_ram_ram) +
+  plot_layout(axes = "collect") +
   plot_annotation(
-    title = "Energy Consumption, Training Duration, and RAM Usage by Allocated RAM",
-    theme = theme(plot.title = element_text(hjust = 0.5))
+    tag_levels = "a",
+    tag_prefix = "(",
+    tag_suffix = ")",
+  ) &
+  theme(
+    plot.tag.position = "bottom"
   )
+  # theme(
+  #   axis.title = element_text(size = 12),
+  #   axis.text = element_text(size = 11),
+  # )
+ram_impact_plot
 
-allocated_ram_plot
+ggsave(
+  filename = file.path(fig_dir, "ram-impact.pdf"),
+  plot = ram_impact_plot,
+  device = cairo_pdf,
+  units = "cm",
+  width = 13.71, height = 9, dpi = 300
+)
 ```
 
 ## Statistical analysis of the effects of batch size, input size, and dataset on energy consumption
@@ -252,7 +286,7 @@ tidy_lm_filtered <- tidy_lm_filtered %>%
 
 # Plot
 eff_plot <- ggplot(tidy_lm_filtered, aes(x = reorder(term, abs(estimate)), y = estimate)) +
-  geom_bar(stat = "identity", fill = "steelblue") +
+  geom_bar(stat = "identity") +
   coord_flip() +
   labs(
     title = "Effect Sizes",

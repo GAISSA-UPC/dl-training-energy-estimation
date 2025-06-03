@@ -25,8 +25,9 @@ required_packages <- c(
   "ggplot2",
   "ggfortify",
   "ggpubr",
+  "ggthemes",
   "patchwork",
-  "tikzDevice"
+  "showtext"
 )
 
 installed_packages <- rownames(installed.packages())
