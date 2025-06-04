@@ -34,7 +34,7 @@ options(
   ggplot2.continuous.colour = function(...) scale_colour_viridis_c(..., option = viridis_scheme)
 )
 
-font_add("CMU Serif", regular = "cmunrm.otf")  # You need the font installed
+font_add("CMU Serif", regular = "cmunrm.otf") # You need the font installed
 showtext_auto()
 
 theme_set(
@@ -70,12 +70,18 @@ df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumpti
   mutate(
     energy_per_image = (energy * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
     training_duration = training_duration * 60, # Convert hours to minutes
+    epoch_duration = training_duration / `trained epochs`, # Calculate average epoch duration in minutes
     batch_size = factor(batch_size, levels = c("32", "64", "256")),
     input_size = factor(image_size, levels = c("(75, 75)", "(128, 128)", "(224, 224)")),
     allocated_ram = factor(allocated_ram, levels = c("8", "16", "24", "32")),
     dataset = factor(dataset),
+    dataset = case_match(
+      dataset,
+      "stanford_dogs" ~ "Stanford Dogs",
+      "caltech101" ~ "Caltech 101"
+    )
   ) %>%
-  select(energy_per_image, training_duration, used_ram, batch_size, input_size, dataset, training_environment, allocated_ram)
+  select(energy_per_image, training_duration, epoch_duration, used_ram, batch_size, input_size, dataset, training_environment, allocated_ram)
 ```
 
 ## Visualize the data
@@ -99,7 +105,7 @@ df_batch_input %>%
   get_summary_stats(energy_per_image, type = "mean_sd")
 
 df_allocated_ram_energy <- df %>%
-  filter(batch_size == "256" & input_size == "(128, 128)" & dataset == "stanford_dogs" & training_environment == "Server") %>%
+  filter(batch_size == "256" & input_size == "(128, 128)" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
   group_by(allocated_ram) %>%
   mutate(
     Q1 = quantile(energy_per_image, 0.25),
@@ -116,7 +122,7 @@ df_allocated_ram_energy %>%
   get_summary_stats(energy_per_image, type = "mean_sd")
 
 df_allocated_ram_time <- df %>%
-  filter(batch_size == "256" & input_size == "(128, 128)" & dataset == "stanford_dogs" & training_environment == "Server") %>%
+  filter(batch_size == "256" & input_size == "(128, 128)" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
   group_by(allocated_ram) %>%
   mutate(
     Q1 = quantile(training_duration, 0.25),
@@ -131,7 +137,7 @@ df_allocated_ram_time %>%
   group_by(allocated_ram) %>%
   get_summary_stats(training_duration, type = "mean_sd")
 df_allocated_ram_ram <- df %>%
-  filter(batch_size == "256" & input_size == "(128, 128)" & dataset == "stanford_dogs" & training_environment == "Server") %>%
+  filter(batch_size == "256" & input_size == "(128, 128)" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
   group_by(allocated_ram) %>%
   mutate(
     Q1 = quantile(used_ram, 0.25),
@@ -149,17 +155,43 @@ df_allocated_ram_ram %>%
 
 ### Boxplot of energy consumption
 ```{r energy-boxplot}
-ggplot(df_batch_input, aes(x = batch_size, y = energy_per_image, color = input_size)) +
+ggplot(df_batch_input, aes(x = input_size, y = energy_per_image, color = batch_size)) +
   geom_boxplot() +
   facet_wrap(~dataset) +
   labs(
-    title = "Energy Consumption by Batch Size and Input Size",
-    x = "Batch Size",
+    x = "Input Size",
     y = "Energy Consumption (J/image)",
-    color = "Input Size"
+    color = "Batch Size"
   )
+
+ggsave(
+  filename = file.path(fig_dir, "batch-and-input-size-effect-energy.pdf"),
+  device = cairo_pdf,
+  units = "cm",
+  width = 13.71, height = 8, dpi = 300
+)
 ```
 
+### Boxplot of epoch duration
+```{r training-duration-boxplot}
+ggplot(df_batch_input %>% filter(dataset == "Stanford Dogs"), aes(x = input_size, y = epoch_duration * 60, color = batch_size)) +
+  geom_boxplot(outliers = FALSE) +
+  labs(
+    x = "Input Size",
+    y = "Epoch Duration (seconds)",
+    color = "Batch Size"
+  ) +
+  coord_flip()
+
+ggsave(
+  filename = file.path(fig_dir, "epoch-time-boxplot-cloud-stanford-dogs.pdf"),
+  device = cairo_pdf,
+  units = "cm",
+  width = 13.71, height = 8, dpi = 300
+)
+```
+
+### Boxplots of allocated RAM effects
 ```{r boxplot-allocated-ram, fig.width=15}
 allocated_ram_energy <- ggplot(df_allocated_ram_energy, aes(x = allocated_ram, y = energy_per_image)) +
   geom_boxplot() +
@@ -190,12 +222,9 @@ ram_impact_plot <- (allocated_ram_energy | allocated_ram_time | allocated_ram_ra
     tag_suffix = ")",
   ) &
   theme(
-    plot.tag.position = "bottom"
+    plot.tag.position = "bottom",
+    plot.tag = element_text(size = 10),
   )
-  # theme(
-  #   axis.title = element_text(size = 12),
-  #   axis.text = element_text(size = 11),
-  # )
 ram_impact_plot
 
 ggsave(
@@ -203,7 +232,7 @@ ggsave(
   plot = ram_impact_plot,
   device = cairo_pdf,
   units = "cm",
-  width = 13.71, height = 9, dpi = 300
+  width = 13.71, height = 8, dpi = 300
 )
 ```
 
