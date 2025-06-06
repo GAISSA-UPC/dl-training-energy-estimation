@@ -43,6 +43,7 @@ df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumpti
             "vgg16" ~ "VGG16"
         ),
         architecture = factor(architecture, levels = c("Mobilenet V2", "NASNet Mobile", "ResNet50", "Xception", "VGG16")),
+        GFLOPs = factor(GFLOPs),
         training_environment = factor(training_environment, levels = c("Desktop ML Engineer", "Server")),
         efficiency = (energy / max(energy, na.rm = TRUE)) / (f1_score / max(f1_score, na.rm = TRUE)), # Megajoule per F1-score
     ) %>%
@@ -55,7 +56,7 @@ df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumpti
 # Define a function to filter outliers of a given variable on an input data frame
 filter_outliers <- function(df, variable) {
     df %>%
-        group_by(architecture, training_environment) %>%
+        group_by("GFLOPs", "training_environment") %>%
         mutate(
             Q1 = quantile(!!sym(variable), 0.25),
             Q3 = quantile(!!sym(variable), 0.75),
@@ -72,7 +73,7 @@ filter_outliers <- function(df, variable) {
 ```{r data_overview}
 # Filter F1-score outliers
 df_clean <- df %>%
-    group_by(architecture) %>%
+    group_by(GFLOPs) %>%
     mutate(
         Q1 = quantile(f1_score, 0.25),
         Q3 = quantile(f1_score, 0.75),
@@ -103,7 +104,7 @@ head(df_clean)
 summary(df_clean)
 
 df_clean %>%
-    group_by(architecture, training_environment) %>%
+    group_by(GFLOPs, training_environment) %>%
     summarise(
         min_f1_score = min(f1_score, na.rm = TRUE),
         max_f1_score = max(f1_score, na.rm = TRUE),
@@ -119,7 +120,7 @@ df_clean %>%
         sd_efficiency = sd(efficiency, na.rm = TRUE),
     ) %>%
     ungroup() %>%
-    arrange(architecture, training_environment)
+    arrange(GFLOPs, training_environment)
 ```
 
 ## Exploratory visualization
@@ -132,51 +133,51 @@ ggplot(df_clean, aes(x = architecture, y = GFLOPs)) +
     scale_fill_brewer(palette = "Set1")
 ```
 
-### F1-score by architecture and training environment
+### F1-score by GFLOPs and training environment
 ```{r f1_by_arch_env, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
 ggboxplot(df_clean,
-    x = "architecture", y = "f1_score",
+    x = "GFLOPs", y = "f1_score",
     fill = "training_environment",
     palette = "Set1"
 ) +
-    labs(title = "F1-score by Architecture and Training Environment")
+    labs(title = "F1-score by GFLOPs and Training Environment")
 ```
-### Energy consumption by architecture and training environment
+### Energy consumption by GFLOPs and training environment
 ```{r energy_by_arch_env, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
 ggboxplot(df_clean,
-    x = "architecture", y = "energy_per_image",
+    x = "GFLOPs", y = "energy_per_image",
     fill = "training_environment",
     palette = "Set1"
 ) +
-    labs(title = "Energy Consumption (Joules/Image) by Architecture and Training Environment")
+    labs(title = "Energy Consumption (Joules/Image) by GFLOPs and Training Environment")
 ```
 
-### Visualize energy_per_image vs. F1-score, colored by architecture
+### Visualize energy_per_image vs. F1-score, colored by GFLOPs
 ```{r energy_vs_f1, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
 ggscatter(df_clean,
     x = "energy_per_image", y = "f1_score",
-    color = "architecture", facet.by = "training_environment",
+    color = "GFLOPs", facet.by = "training_environment",
     add = "reg.line", conf.int = TRUE,
     palette = "Set1",
 ) +
     geom_smooth(method = "lm", se = FALSE, linetype = "dashed") +
     coord_cartesian(ylim = c(0, 1)) +
-    labs(title = "Joules/Image vs. F1-score by Architecture and Training Environment")
+    labs(title = "Joules/Image vs. F1-score by GFLOPs and Training Environment")
 ```
 
 ### Efficiency: Megajoule per F1-score
 ```{r f1_per_joule, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
 ggbarplot(df_clean,
-    x = "architecture", y = "efficiency",
+    x = "GFLOPs", y = "efficiency",
     fill = "training_environment", position = position_dodge(),
     add = "mean_se", palette = "Set1"
 ) +
-    labs(title = "Efficiency (Megajoule per F1-score) by Architecture and Training Environment")
+    labs(title = "Efficiency (Megajoule per F1-score) by GFLOPs and Training Environment")
 ```
 
 ### Visualize trade-offs between F1-score and energy consumption
 ```{r trade_offs, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
-ggplot(df_clean, aes(x = energy, y = f1_score, color = architecture)) +
+ggplot(df_clean, aes(x = energy, y = f1_score, color = GFLOPs)) +
     geom_point(size = 3) +
     facet_wrap(~training_environment) +
     labs(
@@ -218,10 +219,10 @@ hist(log(df$f1_score / (1 - df$f1_score)), main = "Logit")
 cor.test(df_clean$f1_score, df_clean$energy_per_image, method = "spearman")
 ```
 
-### Model 1: F1-score as a function of architecture
+### Model 1: F1-score as a function of GFLOPs
 ```{r model1}
 df_clean$f1_logit <- log(df_clean$f1_score / (1 - df_clean$f1_score))
-model1 <- lm(f1_logit ~ architecture, data = df_clean)
+model1 <- lm(f1_logit ~ GFLOPs, data = df_clean)
 summary(model1)
 ```
 ### Model diagnostics for Model 1
@@ -244,14 +245,14 @@ outliers_model1
 ```
 ```{r model1_post_hoc}
 # Post hoc tests
-post_hoc_model1 <- emmeans(model1, ~architecture)
+post_hoc_model1 <- emmeans(model1, ~GFLOPs)
 post_hoc_results_model1 <- summary(post_hoc_model1)
 post_hoc_results_model1
 # Plot post hoc results
-post_hoc_plot_model1 <- ggplot(post_hoc_results_model1, aes(x = architecture, y = emmean)) +
+post_hoc_plot_model1 <- ggplot(post_hoc_results_model1, aes(x = GFLOPs, y = emmean)) +
     geom_bar(stat = "identity", position = position_dodge()) +
     geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2, position = position_dodge(0.9)) +
-    labs(title = "Post Hoc Results for Model 1", x = "Architecture", y = "Estimated Marginal Mean (F1-score)") +
+    labs(title = "Post Hoc Results for Model 1", x = "GFLOPs", y = "Estimated Marginal Mean (F1-score)") +
     theme_minimal() +
     scale_fill_brewer(palette = "Set1")
 print(post_hoc_plot_model1)
@@ -263,12 +264,12 @@ pairs(post_hoc_model1, adjust = "tukey") # Post hoc pairwise comparisons
 ```{r model1_beta}
 # Transform F1 to (0,1) if any 0s or 1s
 df_clean <- df_clean %>%
-    group_by(architecture) %>%
+    group_by(GFLOPs) %>%
     mutate(f1_trans = (f1_score * (n() - 1) + 0.5) / n()) %>%
     ungroup()
 
 # Original model
-model1_beta <- betareg(f1_trans ~ architecture, data = df_clean)
+model1_beta <- betareg(f1_trans ~ GFLOPs, data = df_clean)
 summary(model1_beta)
 ```
 
@@ -319,13 +320,13 @@ ggplot(diagnostics_df, aes(x = obs_id, y = influence)) +
 
 diagnostics_df %>%
     arrange(desc(influence)) %>%
-    dplyr::select(obs_id, architecture, training_environment, residuals, leverage, influence, flag) %>%
+    dplyr::select(obs_id, GFLOPs, training_environment, residuals, leverage, influence, flag) %>%
     head(10)
 
 df_clean %>%
     filter(row_number() %in% c(198, 219, 237, 202, 204, 230, 215, 214, 192, 212))
 
-ggplot(filter(diagnostics_df, architecture == "ResNet50"), aes(x = obs_id, y = residuals)) +
+ggplot(filter(diagnostics_df, GFLOPs == "ResNet50"), aes(x = obs_id, y = residuals)) +
     geom_point() +
     geom_hline(yintercept = 0, linetype = "dashed") +
     labs(title = "Residuals for ResNet50")
@@ -333,14 +334,14 @@ ggplot(filter(diagnostics_df, architecture == "ResNet50"), aes(x = obs_id, y = r
 
 ```{r model1_post_hoc_beta}
 # Post hoc tests for beta regression model
-post_hoc_model1_beta <- emmeans(model1_beta, ~architecture, type = "response")
+post_hoc_model1_beta <- emmeans(model1_beta, ~GFLOPs, type = "response")
 post_hoc_results_model1_beta <- summary(post_hoc_model1_beta)
 post_hoc_results_model1_beta
 # Plot post hoc results for beta regression model
-post_hoc_plot_model1_beta <- ggplot(post_hoc_results_model1_beta, aes(x = architecture, y = emmean)) +
+post_hoc_plot_model1_beta <- ggplot(post_hoc_results_model1_beta, aes(x = GFLOPs, y = emmean)) +
     geom_bar(stat = "identity", position = position_dodge()) +
     # geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2, position = position_dodge(0.9)) +
-    labs(title = "Post Hoc Results for Model 1 (Beta Regression)", x = "Architecture", y = "Estimated Marginal Mean (F1-score)") +
+    labs(title = "Post Hoc Results for Model 1 (Beta Regression)", x = "GFLOPs", y = "Estimated Marginal Mean (F1-score)") +
     theme_minimal() +
     scale_fill_brewer(palette = "Set1")
 print(post_hoc_plot_model1_beta)
@@ -353,8 +354,8 @@ pairs(post_hoc_model1_beta, adjust = "tukey") # Post hoc pairwise comparisons fo
 ```{r model1_gamlss}
 # Full model
 full_model <- gamlss(
-    f1_score ~ architecture,
-    sigma.formula = ~architecture,
+    f1_score ~ GFLOPs,
+    sigma.formula = ~GFLOPs,
     family = BE,
     control = gamlss.control(n.cyc = 100),
     data = df_clean
@@ -375,19 +376,19 @@ drop1(model_env_only)
 ```{r model1_gamlss_effects}
 # Get unique combinations of factors
 # Extract predicted means and SE on response scale (mu)
-emm <- emmeans(full_model, ~ architecture, type = "response",
+emm <- emmeans(full_model, ~ GFLOPs, type = "response",
                at = list(sigma = mean(predict(full_model, what = "sigma", type = "response"))))
 
 # Convert emmeans to dataframe for ggplot
 emm_df <- as.data.frame(emm)
 emm_df
 
-ggplot(emm_df, aes(x = architecture, y = response)) +
+ggplot(emm_df, aes(x = GFLOPs, y = response)) +
   geom_point(size = 3) +
   geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL), width = 0.2) +
   ylab("Estimated mean F1 score") +
-  xlab("Architecture") +
-  ggtitle("Effect of Model Architecture on F1 Score") +
+  xlab("GFLOPs") +
+  ggtitle("Effect of Model GFLOPs on F1 Score") +
   theme_minimal()
 ```
 
@@ -401,14 +402,14 @@ ggplot(pairs_df, aes(x = contrast, y = odds.ratio)) +
   geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
   coord_flip() +
   ylab("Odds Ratio (F1 score)") +
-  xlab("Architecture contrasts") +
-  ggtitle("Pairwise Comparisons of Architectures (Tukey adjusted)") +
+  xlab("GFLOPs contrasts") +
+  ggtitle("Pairwise Comparisons of GFLOPs (Tukey adjusted)") +
   theme_minimal()
 ```
 
-### Model 2: F1-score per Joule as a function of architecture and training environment
+### Model 2: F1-score per Joule as a function of GFLOPs and training environment
 ```{r model2}
-model2 <- lm(efficiency ~ architecture * training_environment, data = df_clean)
+model2 <- lm(efficiency ~ GFLOPs * training_environment, data = df_clean)
 summary(model2)
 ```
 #### Model diagnostics for Model 2
@@ -431,17 +432,17 @@ Anova(model2, type = 3)
 #### Post hoc tests for Model 2
 ```{r model2_post_hoc}
 # Post hoc tests
-post_hoc_model2 <- emmeans(model2, ~ architecture * training_environment)
+post_hoc_model2 <- emmeans(model2, ~ GFLOPs * training_environment)
 post_hoc_results_model2 <- summary(post_hoc_model2)
 post_hoc_results_model2
 
 pairs(post_hoc_model2, adjust = "tukey") # Post hoc pairwise comparisons
 
 # Plot post hoc results
-post_hoc_plot_model2 <- ggplot(post_hoc_results_model2, aes(x = architecture, y = emmean, fill = training_environment)) +
+post_hoc_plot_model2 <- ggplot(post_hoc_results_model2, aes(x = GFLOPs, y = emmean, fill = training_environment)) +
     geom_bar(stat = "identity", position = position_dodge()) +
     geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2, position = position_dodge(0.9)) +
-    labs(title = "Post Hoc Results for Model 2", x = "Architecture", y = "Estimated Marginal Mean (F1-score per Joule)") +
+    labs(title = "Post Hoc Results for Model 2", x = "GFLOPs", y = "Estimated Marginal Mean (F1-score per Joule)") +
     theme_minimal() +
     scale_fill_brewer(palette = "Set1")
 print(post_hoc_plot_model2)

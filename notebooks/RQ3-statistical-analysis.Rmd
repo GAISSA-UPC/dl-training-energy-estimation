@@ -6,14 +6,16 @@ output: html_notebook
 ## Load libraries
 ```{r setup, include=FALSE}
 library(arrow)
-library(dplyr)
 library(lme4)
 library(lmerTest) # for p-values in mixed models
 library(performance)
 library(DHARMa)
 library(car) # for Anova function
+library(emmeans) # for post-hoc tests
+library(multcomp)
 library(ggplot2)
 library(ggpubr) # for publication-ready plots
+library(dplyr)
 ```
 
 ## Load data
@@ -99,46 +101,46 @@ ggscatter(df_clean_power,
 ### Energy consumption analysis
 #### Global linear trend
 ```{r global-linear-trend}
-model_linear <- lm(energy_per_image ~ gpu_usage, data = df_clean_energy)
-summary(model_linear)
-anova(model_linear)
+model_global <- lm(energy_per_image ~ gpu_usage, data = df_clean_energy)
+summary(model_global)
+anova(model_global)
 ```
 
 ##### Model diagnostics
 ```{r check-residuals-linear}
 # Check residuals
 par(mfrow = c(2, 2))
-plot(model_linear)
+plot(model_global)
 ```
 ```{r check-dharma-linear}
 # Check residuals with DHARMa
-sim_linear <- simulateResiduals(model_linear)
+sim_linear <- simulateResiduals(model_global)
 testResiduals(sim_linear)
 ```
 ```{r check-model-linear, fig.width=8, fig.height=10}
-check_model(model_linear)
+check_model(model_global)
 ```
 
 #### Interaction effects
 ```{r statistical-analysis}
 # Perform linear regression
-model <- lm(energy_per_image ~ gpu_usage * training_environment * architecture, data = df_clean_energy)
-summary(model)
+model_linear <- lm(energy_per_image ~ gpu_usage * training_environment * architecture, data = df_clean_energy)
+summary(model_linear)
 # ANOVA to check for significance
 options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
-Anova(model, type = 3)
+Anova(model_linear, type = 3)
 ```
 
 ##### Model diagnostics
 ```{r check-residuals}
 # Check residuals
 par(mfrow = c(2, 2))
-plot(model)
+plot(model_linear)
 ```
 
 ```{r check-dharma}
 # Check residuals with DHARMa
-sim <- simulateResiduals(model)
+sim <- simulateResiduals(model_linear)
 testResiduals(sim)
 ```
 
@@ -162,49 +164,82 @@ sim_mixed <- simulateResiduals(model_mixed)
 testResiduals(sim_mixed)
 ```
 
+#### Compare models
+```{r compare-models}
+compare_performance(model_global, model_linear, model_mixed, rank = TRUE)
+```
+
+#### Post-hoc tests
+```{r post-hoc-tests}
+# Estimate marginal means with GPU usage at 50% (0.5)
+emms <- emmeans(model_linear, ~ gpu_usage * training_environment * architecture, at = list(gpu_usage = 0.9))
+emms
+pairwise_com <- pairs(emms)
+
+# Select non-significant pairs
+as.data.frame(pairwise_com) %>%
+    filter(p.value > 0.05)
+
+pairs(emms, by = "training_environment", adjust = "tukey")
+pairs(emms, by = "architecture", adjust = "tukey")
+
+compact_letter_display <- cld(emms, Letters = letters, adjust = "sidak")
+
+print(compact_letter_display)
+
+ggplot(compact_letter_display, aes(x = interaction(gpu_usage, training_environment, architecture),
+                     y = emmean)) +
+  geom_col(fill = "skyblue") +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2) +
+  geom_text(aes(label = .group), vjust = -0.5, color = "red") +
+  labs(x = "Condition", y = "Estimated Marginal Mean (GPU Usage)") +
+  theme_pubr() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
 ### Power draw analysis
 #### Global linear trend
 ```{r global-linear-trend-power-draw}
-model_linear_power_draw <- lm(power_draw ~ gpu_usage, data = df_clean_power)
-summary(model_linear_power_draw)
-anova(model_linear_power_draw)
+model_global_power_draw <- lm(power_draw ~ gpu_usage, data = df_clean_power)
+summary(model_global_power_draw)
+anova(model_global_power_draw)
 ```
 ##### Model diagnostics for power draw
 ```{r check-residuals-linear-power-draw}
 # Check residuals
 par(mfrow = c(2, 2))
-plot(model_linear_power_draw)
+plot(model_global_power_draw)
 ```
 ```{r check-dharma-linear-power-draw}
 # Check residuals with DHARMa
-sim_linear_power_draw <- simulateResiduals(model_linear_power_draw)
+sim_linear_power_draw <- simulateResiduals(model_global_power_draw)
 testResiduals(sim_linear_power_draw)
 ```
 
 #### Interaction effects for power draw
 ```{r model-power-draw}
-model_power_draw <- lm(power_draw ~ gpu_usage * training_environment * architecture, data = df_clean_power)
-summary(model_power_draw)
+model_linear_power_draw <- lm(power_draw ~ gpu_usage * training_environment * architecture, data = df_clean_power)
+summary(model_linear_power_draw)
 ```
 
 ```{r anova-power-draw}
 options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
-Anova(model_power_draw, type = 3)
+Anova(model_linear_power_draw, type = 3)
 ```
 
 ##### Model diagnostics for power draw
 ```{r check-residuals-power-draw}
 # Check residuals
 par(mfrow = c(2, 2))
-plot(model_power_draw)
+plot(model_linear_power_draw)
 ```
 ```{r check-dharma-power-draw}
 # Check residuals with DHARMa
-sim_power_draw <- simulateResiduals(model_power_draw)
+sim_power_draw <- simulateResiduals(model_linear_power_draw)
 testResiduals(sim_power_draw)
 ```
 ```{r check-model-power-draw, fig.width=8, fig.height=10}
-check_model(model_power_draw)
+check_model(model_linear_power_draw)
 ```
 
 #### Mixed effects model for power draw
@@ -230,4 +265,19 @@ testResiduals(sim_mixed_power_draw)
 ```
 ```{r check-model-mixed-power-draw, fig.width=8, fig.height=10}
 check_model(model_mixed_power_draw)
+```
+
+### Compare models for power draw
+```{r compare-models-power-draw}
+compare_performance(model_global_power_draw, model_linear_power_draw, model_mixed_power_draw, rank = TRUE)
+```
+
+### Post-hoc tests for power draw
+```{r post-hoc-tests-power-draw}
+emms_power_draw <- emmeans(model_linear_power_draw, ~ gpu_usage * training_environment * architecture)
+emms_power_draw
+pairs(emms_power_draw, by = "training_environment", adjust = "tukey")
+pairs(emms_power_draw, by = "architecture", adjust = "tukey")
+
+plot(emms_power_draw, comparisons = TRUE)
 ```
