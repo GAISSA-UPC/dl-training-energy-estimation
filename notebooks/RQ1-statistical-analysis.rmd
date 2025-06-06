@@ -2,10 +2,13 @@
 title: "RQ1: What is the impact of model architecture and training environment on image classification training concerning energy consumption and GPU usage?"
 output: html_notebook
 author: "Santiago del Rey"
+knit: internalRmdTools::knit_to_reports
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(
+    root.dir = "../"
+)
 # Load libraries
 library(arrow)
 library(tidyverse)
@@ -25,7 +28,7 @@ library(MASS)
 We load the data from the parquet file, filter out the `inception_v3` architecture and the `Desktop Normal User` training environment, and normalize the energy consumption by the total number of images seen during training (converting MJ to J). We also prepare the `gpu_usage` variable.
 
 ```{r}
-df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
+df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
   filter(architecture != "inception_v3" & `training environment` != "Desktop Normal User") %>%
   mutate(
     energy = (`energy (MJ)` * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images

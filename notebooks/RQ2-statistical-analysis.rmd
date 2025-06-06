@@ -2,11 +2,14 @@
 title: "RQ2: Do gains in correctness justify energy-greedy architectures?"
 author: "Santiago del Rey"
 output: html_notebook
+knit: internalRmdTools::knit_to_reports
 ---
 
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(
+    root.dir = "../"
+)
 library(arrow)
 library(tidyverse)
 library(lmtest)
@@ -29,7 +32,7 @@ library(ggpubr) # for publication-ready plots
 We load the data from the parquet file, filter out the `inception_v3` architecture and the `Desktop Normal User` training environment, and normalize the energy consumption by the total number of images seen during training (converting MJ to J). We also prepare the `gpu_usage` variable.
 
 ```{r}
-df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
+df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
     rename(training_environment = `training environment`, gpu_usage = `gpu usage (%)`, f1_score = `f1-score`, energy = `energy (MJ)`) %>%
     filter(architecture != "inception_v3" & training_environment != "Desktop Normal User") %>%
     mutate(
