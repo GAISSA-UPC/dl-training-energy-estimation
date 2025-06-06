@@ -1,6 +1,8 @@
 # Install required packages R Markdown notebooks
 
 required_packages <- c(
+  "knitr",
+  "rmarkdown",
   "arrow",
   "tidyverse",
   "lme4",

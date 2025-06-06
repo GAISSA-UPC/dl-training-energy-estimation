@@ -2,9 +2,13 @@
 title: "RQ4: How can we accurately estimate energy consumption before training DL models for image classification?"
 output: html_notebook
 author: "Santiago del Rey"
+knit: internalRmdTools::knit_to_reports
 ---
 
 ```{r setup, include=FALSE}
+knitr::opts_knit$set(
+  root.dir = "../"
+)
 library(arrow)
 library(lme4)
 library(lmerTest) # p-values for lmer
@@ -20,7 +24,9 @@ library(ggpubr) # for publication-ready plots
 library(viridis)
 library(showtext)
 library(dplyr)
+```
 
+```{r setup-fonts, include=FALSE}
 # For discrete variables
 viridis_scheme <- "turbo"
 options(
@@ -47,8 +53,11 @@ theme_set(
       strip.text = element_text(size = 10)
     )
 )
+```
 
-fig_dir <- "../reports/figures/RQ4/"
+```{r create-figures-directory, include=FALSE}
+fig_dir <- "reports/figures/RQ4/"
+print(getwd())
 if (!dir.exists(fig_dir)) {
   dir.create(fig_dir, recursive = TRUE)
 }
@@ -56,7 +65,7 @@ if (!dir.exists(fig_dir)) {
 
 ## Load data
 ```{r load-data}
-df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
+df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
   rename(
     energy = `energy (MJ)`,
     training_duration = `training duration (h)`,

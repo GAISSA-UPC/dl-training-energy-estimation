@@ -1,0 +1,14 @@
+Package: internalRmdTools
+Title: Utility functions for R Markdown
+Version: 0.1.0
+Authors@R:
+    person("Santiago", "del Rey", , "santiago.del.rey@upc.edu", role = c("aut", "cre"))
+Description: A collection of utility functions to help with R Markdown documents.
+    This package is intended to be used internally by the `rmarkdown` package
+    and is not meant for general use. It provides functions to simplify
+    common tasks in R Markdown documents, such as managing code chunks,
+    handling output formats, and more.
+License: `use_mit_license()`
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2

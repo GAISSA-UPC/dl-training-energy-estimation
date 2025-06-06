@@ -2,9 +2,13 @@
 title: "RQ3: Is there a relationship between GPU usage and energy consumption when training DL models?"
 author: "Santiago del Rey"
 output: html_notebook
+knit: internalRmdTools::knit_to_reports
 ---
 ## Load libraries
 ```{r setup, include=FALSE}
+knitr::opts_knit$set(
+    root.dir = "../"
+)
 library(arrow)
 library(lme4)
 library(lmerTest) # for p-values in mixed models
@@ -20,7 +24,7 @@ library(dplyr)
 
 ## Load data
 ```{r load-data}
-df <- read_parquet("../data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
+df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
     rename(
         training_environment = `training environment`,
         gpu_usage = `gpu usage (%)`,
