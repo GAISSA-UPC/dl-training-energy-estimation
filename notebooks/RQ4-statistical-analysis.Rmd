@@ -43,15 +43,23 @@ options(
 font_add("CMU Serif", regular = "cmunrm.otf") # You need the font installed
 showtext_auto()
 
-theme_set(
-  theme_pubr(base_family = "CMU Serif") +
-    theme(
-      plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
-      axis.title = element_text(size = 10),
-      axis.text = element_text(size = 9),
-      legend.text = element_text(size = 9),
-      strip.text = element_text(size = 10)
-    )
+theme_set(theme_pubr(base_family = "CMU Serif") +
+  theme(
+    plot.title = element_text(size = 24, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 18),
+    axis.text = element_text(size = 16),
+    legend.text = element_text(size = 16),
+    strip.text = element_text(size = 18),
+    legend.position = "top"
+  )
+)
+
+pub_theme <- theme(
+  plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+  axis.title = element_text(size = 10),
+  axis.text = element_text(size = 9),
+  legend.text = element_text(size = 9),
+  strip.text = element_text(size = 10)
 )
 ```
 
@@ -164,7 +172,7 @@ df_allocated_ram_ram %>%
 
 ### Boxplot of energy consumption
 ```{r energy-boxplot}
-ggplot(df_batch_input, aes(x = input_size, y = energy_per_image, color = batch_size)) +
+energy_boxplot <- ggplot(df_batch_input, aes(x = input_size, y = energy_per_image, color = batch_size)) +
   geom_boxplot() +
   facet_wrap(~dataset) +
   labs(
@@ -173,7 +181,10 @@ ggplot(df_batch_input, aes(x = input_size, y = energy_per_image, color = batch_s
     color = "Batch Size"
   )
 
+plot(energy_boxplot)
+
 ggsave(
+  energy_boxplot + pub_theme,
   filename = file.path(fig_dir, "batch-and-input-size-effect-energy.pdf"),
   device = cairo_pdf,
   units = "cm",
@@ -183,7 +194,7 @@ ggsave(
 
 ### Boxplot of epoch duration
 ```{r training-duration-boxplot}
-ggplot(df_batch_input %>% filter(dataset == "Stanford Dogs"), aes(x = input_size, y = epoch_duration * 60, color = batch_size)) +
+epoch_duration_boxplot <- ggplot(df_batch_input %>% filter(dataset == "Stanford Dogs"), aes(x = input_size, y = epoch_duration * 60, color = batch_size)) +
   geom_boxplot(outliers = FALSE) +
   labs(
     x = "Input Size",
@@ -192,6 +203,9 @@ ggplot(df_batch_input %>% filter(dataset == "Stanford Dogs"), aes(x = input_size
   ) +
   coord_flip()
 
+plot(epoch_duration_boxplot)
+
+epoch_duration_boxplot <- epoch_duration_boxplot + pub_theme
 ggsave(
   filename = file.path(fig_dir, "epoch-time-boxplot-cloud-stanford-dogs.pdf"),
   device = cairo_pdf,
@@ -235,6 +249,8 @@ ram_impact_plot <- (allocated_ram_energy | allocated_ram_time | allocated_ram_ra
     plot.tag = element_text(size = 10),
   )
 ram_impact_plot
+
+ram_impact_plot <- ram_impact_plot & pub_theme
 
 ggsave(
   filename = file.path(fig_dir, "ram-impact.pdf"),
@@ -330,8 +346,7 @@ eff_plot <- ggplot(tidy_lm_filtered, aes(x = reorder(term, abs(estimate)), y = e
     title = "Effect Sizes",
     x = "Term",
     y = "Estimate (Energy Consumption Impact)"
-  ) +
-  theme_pubr()
+  )
 ```
 
 Estimate marginal means for the interaction between batch size and input size, conditioned on the dataset.
@@ -358,8 +373,7 @@ emm_plot <- ggplot(emm_df, aes(x = batch_size, y = emmean, group = input_size, c
     x = "Batch Size",
     y = "Predicted Energy Consumption",
     color = "Input Size"
-  ) +
-  theme_pubr()
+  )
 
 combined_plot <- (eff_plot | emm_plot) +
   plot_annotation(title = "Energy Consumption Analysis", theme = theme(plot.title = element_text(hjust = 0.5)))
@@ -395,8 +409,7 @@ plot(emm_ram, comparisons = TRUE) +
     title = "Estimated Marginal Means of Energy by Allocated RAM",
     x = "Predicted Energy Consumption (J/image)",
     y = "Allocated RAM (GB)",
-  ) +
-  theme_pubr()
+  )
 ```
 
 ## Statistical analysis of the effects of allocated RAM on training duration
@@ -422,8 +435,7 @@ plot(emm_duration, comparisons = TRUE) +
     title = "Estimated Marginal Means of Training Duration by Allocated RAM",
     x = "Predicted Training Duration (minutes)",
     y = "Allocated RAM (GB)",
-  ) +
-  theme_pubr()
+  )
 ```
 
 ## Statistical analysis of the effects of allocated RAM on average RAM used
@@ -450,6 +462,5 @@ plot(emm_ram_used, comparisons = TRUE) +
     title = "Estimated Marginal Means of Average RAM Used by Allocated RAM",
     x = "Predicted Average RAM Used (MB)",
     y = "Allocated RAM (GB)",
-  ) +
-  theme_pubr()
+  )
 ```
