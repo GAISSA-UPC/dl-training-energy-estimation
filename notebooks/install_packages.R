@@ -29,7 +29,8 @@ required_packages <- c(
   "ggpubr",
   "ggthemes",
   "patchwork",
-  "showtext"
+  "showtext",
+  "Hmisc"
 )
 
 installed_packages <- rownames(installed.packages())

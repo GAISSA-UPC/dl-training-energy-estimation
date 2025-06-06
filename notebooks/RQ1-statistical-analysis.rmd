@@ -7,33 +7,80 @@ knit: internalRmdTools::knit_to_reports
 
 ```{r setup, include=FALSE}
 knitr::opts_knit$set(
-    root.dir = "../"
+  root.dir = "../"
 )
 # Load libraries
 library(arrow)
-library(tidyverse)
 library(lme4)
 library(lmerTest) # p-values for lmer
 library(DHARMa)
 library(emmeans) # post hoc tests
-library(gridExtra)
+library(effectsize)
 library(ggplot2)
 library(ggpubr) # for publication-ready plots
 library(car)
 library(MASS)
+library(showtext) # for custom fonts
+library(patchwork)
+library(tidyverse)
+```
+
+```{r setup-fonts, include=FALSE}
+# For discrete variables
+viridis_scheme <- "turbo"
+options(
+  ggplot2.discrete.fill = function(...) scale_fill_viridis_d(..., option = viridis_scheme),
+  ggplot2.discrete.colour = function(...) scale_colour_viridis_d(..., option = viridis_scheme)
+)
+
+# For continuous variables
+options(
+  ggplot2.continuous.fill = function(...) scale_fill_viridis_c(..., option = viridis_scheme),
+  ggplot2.continuous.colour = function(...) scale_colour_viridis_c(..., option = viridis_scheme)
+)
+
+font_add("CMU Serif", regular = "cmunrm.otf") # You need the font installed
+showtext_auto()
+
+theme_set(theme_pubr(base_family = "CMU Serif") +
+  theme(
+    plot.title = element_text(size = 24, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 18),
+    axis.text = element_text(size = 16),
+    legend.text = element_text(size = 16),
+    strip.text = element_text(size = 18),
+    legend.position = "top"
+  ))
+
+pub_theme <- theme(
+  plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+  axis.title = element_text(size = 10),
+  axis.text = element_text(size = 9),
+  legend.text = element_text(size = 9),
+  strip.text = element_text(size = 10),
+)
+```
+
+```{r create-figures-directory, include=FALSE}
+fig_dir <- "reports/figures/RQ1/"
+print(getwd())
+if (!dir.exists(fig_dir)) {
+  dir.create(fig_dir, recursive = TRUE)
+}
 ```
 
 ## Load and preprocess data
 
 We load the data from the parquet file, filter out the `inception_v3` architecture and the `Desktop Normal User` training environment, and normalize the energy consumption by the total number of images seen during training (converting MJ to J). We also prepare the `gpu_usage` variable.
 
-```{r}
+```{r, read-data}
 df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
   filter(architecture != "inception_v3" & `training environment` != "Desktop Normal User") %>%
   mutate(
     energy = (`energy (MJ)` * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
     training_environment = factor(`training environment`, levels = c("Desktop ML Engineer", "Server")),
-    architecture = case_match(architecture,
+    architecture = case_match(
+      architecture,
       "mobilenet_v2" ~ "Mobilenet V2",
       "nasnet_mobile" ~ "NASNet Mobile",
       "resnet50" ~ "ResNet50",
@@ -43,12 +90,12 @@ df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-
     architecture = factor(architecture, levels = c("Mobilenet V2", "NASNet Mobile", "ResNet50", "Xception", "VGG16")),
     gpu_usage = `gpu usage (%)`
   ) %>%
-  dplyr::select(energy, gpu_usage, architecture, training_environment)
+  select(energy, gpu_usage, architecture, training_environment)
 ```
 
 ### Outlier filtering functions
 
-```{r}
+```{r, filter-outliers}
 # Define a function to filter outliers of a given variable on an input data frame
 filter_outliers <- function(df, variable) {
   df %>%
@@ -61,8 +108,12 @@ filter_outliers <- function(df, variable) {
     ) %>%
     ungroup() %>%
     filter(!is_outlier) %>%
-    dplyr::select(-Q1, -Q3, -IQR, -is_outlier)
+    select(-Q1, -Q3, -IQR, -is_outlier)
 }
+
+filtered_energy_data <- filter_outliers(df, "energy")
+# Outlier filtering for gpu_usage (by group)
+filtered_gpu_data <- filter_outliers(df, "gpu_usage")
 ```
 
 ---
@@ -72,9 +123,6 @@ filter_outliers <- function(df, variable) {
 ## Data summary
 
 ```{r datasummary}
-filtered_energy_data <- df %>%
-  filter_outliers("energy")
-
 filtered_energy_data %>%
   group_by(architecture, training_environment) %>%
   summarise(
@@ -86,8 +134,100 @@ filtered_energy_data %>%
   )
 ```
 
-```{r}
-hist(filtered_energy_data$energy, breaks = 30, main = "Distribution of Energy")
+## Visualize the data
+### Histograms of energy consumption
+```{r, energy-histograms-raw}
+par(mfrow = c(1, 2)) # Set up a 1x2 grid for histograms
+hist(filtered_energy_data$energy, main = "Raw Energy Consumption (J/image)", breaks = 30)
+hist(log(filtered_energy_data$energy), main = "Log Energy Consumption (J/image)", breaks = 30)
+```
+
+### Bar plot of energy consumption by architecture and training environment
+```{r, energy-barplot}
+mean_energy_by_arch_env <- filtered_energy_data %>%
+  group_by(architecture, training_environment) %>%
+  summarise(mean_energy = mean(energy, na.rm = TRUE)) %>%
+  ungroup()
+
+greenest_architecture <- mean_energy_by_arch_env %>%
+  filter(mean_energy == min(mean_energy)) %>%
+  pull(architecture) %>%
+  unique()
+greenest_bar_height <- mean_energy_by_arch_env %>%
+  filter(architecture == greenest_architecture) %>%
+  summarise(min_energy = min(mean_energy)) %>%
+  pull(min_energy)
+
+max_mean_energy <- max(mean_energy_by_arch_env$mean_energy)
+
+dodge_width <- 0.9
+env_levels <- levels(factor(filtered_energy_data$training_environment)) # preserves order
+target_env <- "Desktop ML Engineer"
+
+env_index <- which(env_levels == target_env)
+n_envs <- length(env_levels)
+offset <- dodge_width * ((env_index - 0.5) / n_envs - 0.5)
+
+x_base <- as.numeric(factor(greenest_architecture))
+x_pos <- x_base + offset
+
+relative_improvement <- (max_mean_energy - greenest_bar_height) / max_mean_energy * 100
+label_text <- paste0("↓ ", formatC(relative_improvement, format = "f", digits = 2), "%")
+
+make_energy_plot <- function(annotation_font_size = 16) {
+  annottation_size <- annotation_font_size / ggplot2::.pt # Convert to relative size
+  ggplot(filtered_energy_data, aes(x = architecture, y = energy, fill = training_environment)) +
+    geom_bar(stat = "summary", fun = "mean", position = position_dodge()) +
+    geom_errorbar(
+      stat = "summary",
+      fun.data = mean_cl_boot,
+      position = position_dodge(width = 0.9),
+      width = 0.2
+    ) +
+    # Add a horizontal line for the maximum mean energy consumption
+    geom_hline(
+      yintercept = max_mean_energy,
+      linetype = "dashed", color = "red"
+    ) +
+    # Add arrow pointing down
+    geom_segment(
+      aes(
+        x = x_pos,
+        xend = x_pos,
+        y = max_mean_energy,
+        yend = greenest_bar_height + 0.005,
+      ),
+      arrow = arrow(length = unit(0.2, "cm"), type = "closed"),
+      color = "darkgreen",
+      linewidth = 1,
+      alpha = 0.7,
+      inherit.aes = FALSE
+    ) +
+    # Add text label
+    annotate(
+      "text",
+      x = x_pos + 0.3, # horizontal offset to the right of the arrow
+      y = greenest_bar_height + (max_mean_energy - greenest_bar_height) / 2, # vertical midpoint
+      label = label_text,
+      color = "darkgreen",
+      fontface = "bold",
+      size = annottation_size
+    ) +
+    labs(
+      x = "Architecture",
+      y = "Mean Energy\nConsumption (J/image)",
+      fill = "Training Environment"
+    )
+}
+
+make_energy_plot(12)
+
+ggsave(make_energy_plot(9) + pub_theme,
+  filename = file.path(fig_dir, "energy_by_arch_and_env.pdf"),
+  device = cairo_pdf,
+  units = "cm",
+  width = 13.71, height = 8, dpi = 300
+)
 ```
 
 ## Linear Model
@@ -148,14 +288,20 @@ testResiduals(sim_res_energy)
 ```{r}
 options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
 Anova(model_energy, type = 3)
+
+effectsize::eta_squared(model_energy, partial = FALSE)  # for eta-squared
+effectsize::eta_squared(model_energy, partial = TRUE)  # for partial eta-squared
 ```
 
 ## Post hoc tests
 
 ```{r}
-emm_energy <- emmeans(model_energy, ~ architecture * training_environment)
-pairs(emm_energy, simple = "each", combine = TRUE)
+emm_energy <- emmeans(model_energy, ~ architecture * training_environment, type = "response")
+pair_comparison <- pairs(emm_energy, type = "response")
+
+# To view results:
 summary(emm_energy)
+summary(pair_comparison)
 ```
 
 Plot the interaction effects
@@ -212,9 +358,6 @@ ggplot() +
 ## Data summary
 
 ```{r}
-# Outlier filtering for gpu_usage (by group)
-filtered_gpu_data <- filter_outliers(df, "gpu_usage")
-
 filtered_gpu_data %>%
   group_by(architecture, training_environment) %>%
   summarise(
@@ -226,6 +369,8 @@ filtered_gpu_data %>%
   )
 ```
 
+## Visualize the data
+### Histograms of GPU usage
 ```{r}
 par(mfrow = c(2, 3)) # Set up a 2x3 grid for histograms
 hist(filtered_gpu_data$gpu_usage, main = "Raw")
@@ -234,6 +379,31 @@ hist(sqrt(filtered_gpu_data$gpu_usage), main = "Sqrt")
 hist(filtered_gpu_data$gpu_usage^2, main = "Square")
 hist(filtered_gpu_data$gpu_usage^3, main = "Cube")
 hist(100 - filtered_gpu_data$gpu_usage, main = "Reflected")
+```
+
+### Bar plot of GPU usage by architecture and training environment
+```{r, gpu-usage-barplot}
+gpu_barplot <- ggplot(filtered_gpu_data, aes(x = architecture, y = gpu_usage, fill = training_environment)) +
+  geom_bar(stat = "summary", fun = "mean", position = position_dodge()) +
+  geom_errorbar(
+    stat = "summary",
+    fun.data = mean_cl_boot,
+    position = position_dodge(width = 0.9),
+    width = 0.2
+  ) +
+  labs(
+    x = "Architecture",
+    y = "Mean GPU\nUsage (%)",
+    fill = "Training Environment"
+  )
+
+gpu_barplot
+ggsave(gpu_barplot + pub_theme,
+  filename = file.path(fig_dir, "gpu_usage_barplot.pdf"),
+  device = cairo_pdf,
+  units = "cm",
+  width = 13.71, height = 8, dpi = 300
+)
 ```
 
 ## Linear Model
@@ -281,14 +451,17 @@ testResiduals(sim_res_gpu)
 ```
 
 ```{r}
-plot(sim_res_gpu)  # DHARMa residual plot
-plot(residuals(model_gpu) ~ fitted(model_gpu))  # classic residuals
+plot(sim_res_gpu) # DHARMa residual plot
+plot(residuals(model_gpu) ~ fitted(model_gpu)) # classic residuals
 ```
 
 ## Significance testing
 ```{r}
 options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
 Anova(model_gpu, type = 3)
+
+effectsize::eta_squared(model_gpu, partial = FALSE)  # for eta-squared
+effectsize::eta_squared(model_gpu, partial = TRUE)  # for partial eta-squared
 ```
 
 ## Post hoc tests
@@ -347,8 +520,10 @@ ggplot() +
     color = "Training Environment"
   ) +
   theme_pubr() +
-  theme(text = element_text(size = 14),
-      axis.text.x = element_text(size = 12))
+  theme(
+    text = element_text(size = 14),
+    axis.text.x = element_text(size = 12)
+  )
 ```
 
 ## Visualize estimated energy consumption and gpu usage by architecture and training environment
@@ -382,8 +557,10 @@ energy_plot <- ggplot() +
     color = "Training Environment"
   ) +
   theme_pubr() +
-  theme(text = element_text(size = 14),
-        axis.text.x = element_text(angle = 45, hjust = 1))
+  theme(
+    text = element_text(size = 14),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
 # Create the GPU usage plot
 gpu_plot <- ggplot() +
   geom_jitter(
@@ -413,15 +590,39 @@ gpu_plot <- ggplot() +
     color = "Training Environment"
   ) +
   theme_pubr() +
-  theme(text = element_text(size = 14),
-        axis.text.x = element_text(angle = 45, hjust = 1))
+  theme(
+    text = element_text(size = 14),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
 # grid.arrange(energy_plot, gpu_plot, ncol = 2)
 
-combined_plot <- ggarrange(
-  energy_plot, gpu_plot,
-  ncol = 2, nrow = 1,
-  common.legend = TRUE,
-  legend = "top"
+(energy_plot | gpu_plot) +
+  plot_layout(guides = "collect") &
+  theme(legend.position = "top")
+```
+
+```{r ggsave-combined-plot, include=FALSE}
+energy_barplot <- make_energy_plot(9) + pub_theme
+gpu_barplot <- gpu_barplot + pub_theme
+
+combined_plot <- (energy_barplot / gpu_barplot) +
+  plot_layout(axis = "collect", guides = "collect") +
+  plot_annotation(
+    tag_levels = "a",
+    tag_prefix = "(",
+    tag_suffix = ")",
+  ) &
+  theme(
+    legend.position = "top",
+    plot.tag.position = "bottom",
+    plot.tag = element_text(size = 10),
+  ) & pub_theme
+
+
+ggsave(combined_plot,
+  filename = file.path(fig_dir, "energy_gpu_usage_by_arch_and_env.pdf"),
+  device = cairo_pdf,
+  units = "cm",
+  width = 13.71, height = 10, dpi = 300
 )
-combined_plot
 ```
