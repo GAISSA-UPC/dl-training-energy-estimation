@@ -39,7 +39,7 @@ options(
   ggplot2.continuous.colour = function(...) scale_colour_viridis_c(..., option = viridis_scheme)
 )
 
-font_add("CMU Serif", regular = "cmunrm.otf") # You need the font installed
+font_add("CMU Serif", regular = "cmunrm.ttf") # You need the font installed
 showtext_auto()
 
 theme_set(theme_pubr(base_family = "CMU Serif") +
@@ -56,6 +56,7 @@ pub_theme <- theme(
   plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
   axis.title = element_text(size = 10),
   axis.text = element_text(size = 9),
+  legend.title = element_text(size = 10),
   legend.text = element_text(size = 9),
   strip.text = element_text(size = 10),
 )
@@ -144,21 +145,21 @@ hist(log(filtered_energy_data$energy), main = "Log Energy Consumption (J/image)"
 
 ### Bar plot of energy consumption by architecture and training environment
 ```{r, energy-barplot}
-mean_energy_by_arch_env <- filtered_energy_data %>%
+median_energy_by_arch_env <- filtered_energy_data %>%
   group_by(architecture, training_environment) %>%
-  summarise(mean_energy = mean(energy, na.rm = TRUE)) %>%
+  summarise(median_energy = median(energy, na.rm = TRUE)) %>%
   ungroup()
 
-greenest_architecture <- mean_energy_by_arch_env %>%
-  filter(mean_energy == min(mean_energy)) %>%
+greenest_architecture <- median_energy_by_arch_env %>%
+  filter(median_energy == min(median_energy)) %>%
   pull(architecture) %>%
   unique()
-greenest_bar_height <- mean_energy_by_arch_env %>%
+greenest_bar_height <- median_energy_by_arch_env %>%
   filter(architecture == greenest_architecture) %>%
-  summarise(min_energy = min(mean_energy)) %>%
+  summarise(min_energy = min(median_energy)) %>%
   pull(min_energy)
 
-max_mean_energy <- max(mean_energy_by_arch_env$mean_energy)
+max_median_energy <- max(median_energy_by_arch_env$median_energy)
 
 dodge_width <- 0.9
 env_levels <- levels(factor(filtered_energy_data$training_environment)) # preserves order
@@ -171,7 +172,7 @@ offset <- dodge_width * ((env_index - 0.5) / n_envs - 0.5)
 x_base <- as.numeric(factor(greenest_architecture))
 x_pos <- x_base + offset
 
-relative_improvement <- (max_mean_energy - greenest_bar_height) / max_mean_energy * 100
+relative_improvement <- (max_median_energy - greenest_bar_height) / max_median_energy * 100
 label_text <- paste0("↓ ", formatC(relative_improvement, format = "f", digits = 2), "%")
 
 make_energy_plot <- function(annotation_font_size = 16) {
@@ -186,7 +187,7 @@ make_energy_plot <- function(annotation_font_size = 16) {
     ) +
     # Add a horizontal line for the maximum mean energy consumption
     geom_hline(
-      yintercept = max_mean_energy,
+      yintercept = max_median_energy,
       linetype = "dashed", color = "red"
     ) +
     # Add arrow pointing down
@@ -194,7 +195,7 @@ make_energy_plot <- function(annotation_font_size = 16) {
       aes(
         x = x_pos,
         xend = x_pos,
-        y = max_mean_energy,
+        y = max_median_energy,
         yend = greenest_bar_height + 0.005,
       ),
       arrow = arrow(length = unit(0.2, "cm"), type = "closed"),
@@ -207,7 +208,7 @@ make_energy_plot <- function(annotation_font_size = 16) {
     annotate(
       "text",
       x = x_pos + 0.3, # horizontal offset to the right of the arrow
-      y = greenest_bar_height + (max_mean_energy - greenest_bar_height) / 2, # vertical midpoint
+      y = greenest_bar_height + (max_median_energy - greenest_bar_height) / 2, # vertical midpoint
       label = label_text,
       color = "darkgreen",
       fontface = "bold",
@@ -215,7 +216,7 @@ make_energy_plot <- function(annotation_font_size = 16) {
     ) +
     labs(
       x = "Architecture",
-      y = "Mean Energy\nConsumption (J/image)",
+      y = "Median Energy\nConsumption (J/image)",
       fill = "Training Environment"
     )
 }
@@ -302,6 +303,12 @@ pair_comparison <- pairs(emm_energy, type = "response")
 # To view results:
 summary(emm_energy)
 summary(pair_comparison)
+
+print("Non-significant pairwise comparisons:")
+pair_comparison_df <- as.data.frame(pair_comparison)
+pair_comparison_df %>%
+  filter(p.value > 0.05) %>%
+  select(contrast, estimate, SE, df, t.ratio, p.value)
 ```
 
 Plot the interaction effects
@@ -371,7 +378,7 @@ filtered_gpu_data %>%
 
 ## Visualize the data
 ### Histograms of GPU usage
-```{r}
+```{r gpu-histograms-raw}
 par(mfrow = c(2, 3)) # Set up a 2x3 grid for histograms
 hist(filtered_gpu_data$gpu_usage, main = "Raw")
 hist(log(filtered_gpu_data$gpu_usage), main = "Log")
@@ -384,7 +391,7 @@ hist(100 - filtered_gpu_data$gpu_usage, main = "Reflected")
 ### Bar plot of GPU usage by architecture and training environment
 ```{r, gpu-usage-barplot}
 gpu_barplot <- ggplot(filtered_gpu_data, aes(x = architecture, y = gpu_usage, fill = training_environment)) +
-  geom_bar(stat = "summary", fun = "mean", position = position_dodge()) +
+  geom_bar(stat = "summary", fun = "median", position = position_dodge()) +
   geom_errorbar(
     stat = "summary",
     fun.data = mean_cl_boot,
@@ -393,7 +400,7 @@ gpu_barplot <- ggplot(filtered_gpu_data, aes(x = architecture, y = gpu_usage, fi
   ) +
   labs(
     x = "Architecture",
-    y = "Mean GPU\nUsage (%)",
+    y = "Median GPU\nUsage (%)",
     fill = "Training Environment"
   )
 
@@ -450,11 +457,6 @@ sim_res_gpu <- simulateResiduals(fittedModel = model_gpu)
 testResiduals(sim_res_gpu)
 ```
 
-```{r}
-plot(sim_res_gpu) # DHARMa residual plot
-plot(residuals(model_gpu) ~ fitted(model_gpu)) # classic residuals
-```
-
 ## Significance testing
 ```{r}
 options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
@@ -466,11 +468,7 @@ effectsize::eta_squared(model_gpu, partial = TRUE)  # for partial eta-squared
 
 ## Post hoc tests
 
-```{r}
-emmeans(model_gpu, pairwise ~ architecture * training_environment)
-```
-
-```{r}
+```{r post_hoc_gpu}
 emm_gpu <- emmeans(model_gpu, ~ architecture * training_environment)
 
 # back-transform estimated means
@@ -481,8 +479,20 @@ emm_gpu_df <- emm_gpu_df %>%
     lower_CI = max_val - (emmean + SE * qt(0.975, df))^2 + 1,
     upper_CI = max_val - (emmean - SE * qt(0.975, df))^2 + 1
   )
+
+emm_gpu_df
 ```
 
+```{r pairwise-gpu}
+emm_pairs_gpu <- pairs(emm_gpu, type = "response")
+
+emm_pairs_gpu_df <- as.data.frame(emm_pairs_gpu)
+
+print("Non-significant pairwise comparisons:")
+emm_pairs_gpu_df %>%
+  filter(p.value > 0.05) %>%
+  select(contrast, estimate, SE, df, t.ratio, p.value)
+```
 Plot the interaction effects
 ```{r}
 # Set the desired order for the x axis
@@ -606,16 +616,9 @@ energy_barplot <- make_energy_plot(9) + pub_theme
 gpu_barplot <- gpu_barplot + pub_theme
 
 combined_plot <- (energy_barplot / gpu_barplot) +
-  plot_layout(axis = "collect", guides = "collect") +
-  plot_annotation(
-    tag_levels = "a",
-    tag_prefix = "(",
-    tag_suffix = ")",
-  ) &
+  plot_layout(axis = "collect", guides = "collect") &
   theme(
     legend.position = "top",
-    plot.tag.position = "bottom",
-    plot.tag = element_text(size = 10),
   ) & pub_theme
 
 
