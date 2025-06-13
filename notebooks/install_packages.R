@@ -26,7 +26,6 @@ required_packages <- c(
   "ggeffects",
   "ggplot2",
   "ggfortify",
-  "ggpubr",
   "ggthemes",
   "patchwork",
   "showtext",
@@ -39,3 +38,5 @@ for (pkg in required_packages) {
     install.packages(pkg)
   }
 }
+
+install.packages("internalRmdTools_0.1.0.tar.gz", repos = NULL, type = "source")
