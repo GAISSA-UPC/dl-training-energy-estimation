@@ -25,6 +25,7 @@ required_packages <- c(
   "gridExtra",
   "ggeffects",
   "ggplot2",
+  "ggstar",
   "ggfortify",
   "ggthemes",
   "patchwork",

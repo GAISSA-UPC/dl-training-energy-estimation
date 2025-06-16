@@ -11,20 +11,69 @@ knitr::opts_knit$set(
     root.dir = "../"
 )
 library(arrow)
-library(tidyverse)
 library(lmtest)
 library(betareg)
 library(gamlss)
 library(DHARMa)
 library(car)
 library(performance) # check assumptions
+library(effectsize)
 library(emmeans) # post hoc tests
 library(multcomp)
 library(h2o)
 library(gridExtra)
 library(ggplot2)
+library(ggstar)
 library(ggfortify)
 library(ggpubr) # for publication-ready plots
+library(showtext) # for custom fonts
+library(patchwork)
+library(tidyverse)
+```
+
+```{r setup-fonts, include=FALSE}
+# For discrete variables
+viridis_scheme <- "turbo"
+options(
+    ggplot2.discrete.fill = function(...) scale_fill_viridis_d(..., option = viridis_scheme),
+    ggplot2.discrete.colour = function(...) scale_colour_viridis_d(..., option = viridis_scheme)
+)
+
+# For continuous variables
+options(
+    ggplot2.continuous.fill = function(...) scale_fill_viridis_c(..., option = viridis_scheme),
+    ggplot2.continuous.colour = function(...) scale_colour_viridis_c(..., option = viridis_scheme)
+)
+
+font_add("CMU Serif", regular = "cmunrm.ttf") # You need the font installed
+showtext_auto()
+
+theme_set(theme_pubr(base_family = "CMU Serif") +
+    theme(
+        plot.title = element_text(size = 24, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 16),
+        legend.text = element_text(size = 16),
+        strip.text = element_text(size = 18),
+        legend.position = "top"
+    ))
+
+pub_theme <- theme(
+    plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 9),
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9),
+    strip.text = element_text(size = 10),
+)
+```
+
+```{r create-figures-directory, include=FALSE}
+fig_dir <- "reports/figures/RQ2/"
+print(getwd())
+if (!dir.exists(fig_dir)) {
+    dir.create(fig_dir, recursive = TRUE)
+}
 ```
 
 ## Load and preprocess data
@@ -107,52 +156,58 @@ head(df_clean)
 summary(df_clean)
 
 df_clean %>%
-    group_by(GFLOPs, training_environment) %>%
+    group_by(architecture) %>%
     summarise(
         min_f1_score = min(f1_score, na.rm = TRUE),
         max_f1_score = max(f1_score, na.rm = TRUE),
         mean_f1_score = mean(f1_score, na.rm = TRUE),
         sd_f1_score = sd(f1_score, na.rm = TRUE),
+        median_f1_score = median(f1_score, na.rm = TRUE),
         min_energy_per_image = min(energy_per_image, na.rm = TRUE),
         max_energy_per_image = max(energy_per_image, na.rm = TRUE),
         mean_energy_per_image = mean(energy_per_image, na.rm = TRUE),
         sd_energy_per_image = sd(energy_per_image, na.rm = TRUE),
+        median_energy_per_image = median(energy_per_image, na.rm = TRUE),
         min_efficiency = min(efficiency, na.rm = TRUE),
         max_efficiency = max(efficiency, na.rm = TRUE),
         mean_efficiency = mean(efficiency, na.rm = TRUE),
         sd_efficiency = sd(efficiency, na.rm = TRUE),
+        median_efficiency = median(efficiency, na.rm = TRUE)
     ) %>%
     ungroup() %>%
-    arrange(GFLOPs, training_environment)
+    arrange(architecture)
 ```
 
 ## Exploratory visualization
 ### Visualize the GFLOPs of each architecture
 ```{r gflops_by_arch, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
-ggplot(df_clean, aes(x = architecture, y = GFLOPs)) +
-    geom_point() +
-    labs(title = "GFLOPs across Architectures") +
-    theme_minimal() +
-    scale_fill_brewer(palette = "Set1")
+ggplot(df_clean %>% distinct(architecture, .keep_all = TRUE), aes(x = architecture, y = GFLOPs)) +
+    geom_col() +
+    labs(x = "Architecture", y = "GFLOPs")
 ```
 
-### F1-score by GFLOPs and training environment
+### F1-score and energy consumption by GFLOPs and training environment
 ```{r f1_by_arch_env, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
-ggboxplot(df_clean,
-    x = "GFLOPs", y = "f1_score",
-    fill = "training_environment",
-    palette = "Set1"
+f1_boxplot <- ggboxplot(df_clean,
+    x = "architecture", y = "f1_score",
 ) +
-    labs(title = "F1-score by GFLOPs and Training Environment")
-```
-### Energy consumption by GFLOPs and training environment
-```{r energy_by_arch_env, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
+    labs(x = "Architecture", y = "F1-score")
+
+plot(f1_boxplot)
+
+ggsave(
+    plot = f1_boxplot + pub_theme,
+    filename = file.path(fig_dir, "f1_by_arch.pdf"),
+    device = cairo_pdf,
+    units = "cm",
+    width = 13.71, height = 8, dpi = 300
+)
+
 ggboxplot(df_clean,
-    x = "GFLOPs", y = "energy_per_image",
+    x = "architecture", y = "energy_per_image",
     fill = "training_environment",
-    palette = "Set1"
 ) +
-    labs(title = "Energy Consumption (Joules/Image) by GFLOPs and Training Environment")
+    labs(x = "Architecture", y = "Energy consumption (J/image)", fill = "Training Environment")
 ```
 
 ### Visualize energy_per_image vs. F1-score, colored by GFLOPs
@@ -180,15 +235,24 @@ ggbarplot(df_clean,
 
 ### Visualize trade-offs between F1-score and energy consumption
 ```{r trade_offs, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
-ggplot(df_clean, aes(x = energy, y = f1_score, color = GFLOPs)) +
-    geom_point(size = 3) +
+trade_off_plot <- ggplot(df_clean, aes(x = energy, y = f1_score, color = GFLOPs)) +
+    geom_point(size = 1) +
     facet_wrap(~training_environment) +
     labs(
         x = "Total energy consumption (MJ)",
         y = "F1 Score",
-        title = "Trade-offs by Environment"
     ) +
-    theme_pubr()
+    scale_color_discrete(labels = function(x) round(as.numeric(x), 2))
+
+plot(trade_off_plot)
+
+ggsave(
+    plot = trade_off_plot + pub_theme,
+    filename = file.path(fig_dir, "trade_offs_f1_vs_energy.pdf"),
+    device = cairo_pdf,
+    units = "cm",
+    width = 13.71, height = 8, dpi = 300
+)
 ```
 
 ### Pareto front analysis
@@ -201,7 +265,38 @@ pf <- h2o.pareto_front(
     optimum = "top left",
     title = "Pareto Front Plot",
 )
-plot(pf)
+
+# Get list of Pareto optimal points
+pf_points_df <- pf@pareto_front
+
+pf_points_df
+
+pareto_plot <- ggplot(df_clean, aes(x = energy, y = f1_score, color = architecture, shape = training_environment)) +
+    geom_point(size = 1, alpha = 0.7) +
+    geom_line(data = pf_points_df, aes(x = energy, y = f1_score, group = 1), linewidth = 1.1, alpha = 0.8, color = "black") +
+    geom_star(data = pf_points_df, aes(x = energy, y = f1_score, fill = architecture, group = 1), size = 1.5, alpha = 1, show.legend = FALSE) +
+    labs(
+        x = "Total energy consumption (MJ)",
+        y = "F1 Score",
+    ) +
+    guides(color = guide_legend(title = "Architecture", nrow = 3), shape = guide_legend(title = "Training Environment"), fill = FALSE) +
+    theme(
+        legend.position = "inside",
+        legend.justification = c("right", "bottom"),
+        legend.box.just = "left",
+        legend.margin = margin(0, 0, 0, 0),
+        legend.background = element_rect(fill = "transparent"),
+    )
+
+plot(pareto_plot)
+
+ggsave(
+    plot = pareto_plot + pub_theme,
+    filename = file.path(fig_dir, "pareto_front_f1_vs_energy.pdf"),
+    device = cairo_pdf,
+    units = "cm",
+    width = 13.71, height = 8, dpi = 300
+)
 ```
 
 ### Visualize histograms for F1 score
@@ -379,20 +474,22 @@ drop1(model_env_only)
 ```{r model1_gamlss_effects}
 # Get unique combinations of factors
 # Extract predicted means and SE on response scale (mu)
-emm <- emmeans(full_model, ~ GFLOPs, type = "response",
-               at = list(sigma = mean(predict(full_model, what = "sigma", type = "response"))))
+emm <- emmeans(full_model, ~GFLOPs,
+    type = "response",
+    at = list(sigma = mean(predict(full_model, what = "sigma", type = "response")))
+)
 
 # Convert emmeans to dataframe for ggplot
 emm_df <- as.data.frame(emm)
 emm_df
 
 ggplot(emm_df, aes(x = GFLOPs, y = response)) +
-  geom_point(size = 3) +
-  geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL), width = 0.2) +
-  ylab("Estimated mean F1 score") +
-  xlab("GFLOPs") +
-  ggtitle("Effect of Model GFLOPs on F1 Score") +
-  theme_minimal()
+    geom_point(size = 3) +
+    geom_errorbar(aes(ymin = asymp.LCL, ymax = asymp.UCL), width = 0.2) +
+    ylab("Estimated mean F1 score") +
+    xlab("GFLOPs") +
+    ggtitle("Effect of Model GFLOPs on F1 Score") +
+    theme_minimal()
 ```
 
 ```{r model1_gamlss_post_hoc}
@@ -401,13 +498,13 @@ pairs_df <- as.data.frame(pairs_emm)
 pairs_df
 
 ggplot(pairs_df, aes(x = contrast, y = odds.ratio)) +
-  geom_point() +
-  geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
-  coord_flip() +
-  ylab("Odds Ratio (F1 score)") +
-  xlab("GFLOPs contrasts") +
-  ggtitle("Pairwise Comparisons of GFLOPs (Tukey adjusted)") +
-  theme_minimal()
+    geom_point() +
+    geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+    coord_flip() +
+    ylab("Odds Ratio (F1 score)") +
+    xlab("GFLOPs contrasts") +
+    ggtitle("Pairwise Comparisons of GFLOPs (Tukey adjusted)") +
+    theme_minimal()
 ```
 
 ### Model 2: F1-score per Joule as a function of GFLOPs and training environment
