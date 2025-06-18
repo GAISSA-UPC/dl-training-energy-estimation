@@ -4,7 +4,6 @@ author: "Santiago del Rey"
 output: html_notebook
 knit: internalRmdTools::knit_to_reports
 ---
-## Load libraries
 ```{r setup, include=FALSE}
 knitr::opts_knit$set(
     root.dir = "../"
@@ -16,10 +15,58 @@ library(performance)
 library(DHARMa)
 library(car) # for Anova function
 library(emmeans) # for post-hoc tests
+library(effectsize)
 library(multcomp)
 library(ggplot2)
 library(ggpubr) # for publication-ready plots
-library(dplyr)
+library(showtext)
+library(patchwork)
+library(tidyverse)
+```
+
+```{r setup-fonts, include=FALSE}
+# For discrete variables
+viridis_scheme <- "turbo"
+options(
+    ggplot2.discrete.fill = function(...) scale_fill_viridis_d(..., option = viridis_scheme),
+    ggplot2.discrete.colour = function(...) scale_colour_viridis_d(..., option = viridis_scheme)
+)
+
+# For continuous variables
+options(
+    ggplot2.continuous.fill = function(...) scale_fill_viridis_c(..., option = viridis_scheme),
+    ggplot2.continuous.colour = function(...) scale_colour_viridis_c(..., option = viridis_scheme)
+)
+
+font_add("CMU Serif", regular = "cmunrm.ttf") # You need the font installed
+showtext_auto()
+
+theme_set(theme_pubr(base_family = "CMU Serif") +
+    theme(
+        plot.title = element_text(size = 24, face = "bold", hjust = 0.5),
+        axis.title = element_text(size = 18),
+        axis.text = element_text(size = 16),
+        legend.text = element_text(size = 16),
+        strip.text = element_text(size = 18),
+        legend.position = "top"
+    ))
+
+pub_theme <- theme(
+    plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 9),
+    legend.title = element_text(size = 10),
+    legend.text = element_text(size = 9),
+    strip.text = element_text(size = 10),
+)
+```
+
+```{r create-figures-directory, include=FALSE}
+fig_dir <- "reports/figures/RQ3/"
+print(getwd())
+if (!dir.exists(fig_dir)) {
+    dir.create(fig_dir, recursive = TRUE)
+}
 ```
 
 ## Load data
@@ -72,33 +119,93 @@ df_clean_power <- filter_outliers(df, "gpu_usage") %>%
 
 ## Plot GPU usage vs energy consumption
 ```{r gpu-usage-vs-energy-consumption}
-ggscatter(df_clean_energy,
-    x = "gpu_usage", y = "energy_per_image",
-    color = "training_environment",
-    size = 3, alpha = 0.7,
-    xlab = "GPU Usage (%)", ylab = "Normalized Energy Consumption (J/image)",
-    title = "GPU Usage vs Energy Consumption in DL Training"
+gpu_vs_energy <- ggplot(df_clean_energy,
+    aes(x = gpu_usage, y = energy_per_image, color = training_environment),
+    size = 3, alpha = 0.7
 ) +
-    geom_smooth(method = "lm", se = FALSE, aes(color = training_environment)) +
-    facet_wrap(~training_environment) +
-    theme(legend.position = "top")
+    geom_point() +
+    geom_smooth(method = "lm", se = FALSE) +
+    labs(
+        x = "GPU Usage (%)",
+        y = "Normalized Energy (J/image)",
+    ) +
+    guides(
+        color = guide_legend(title = "Training environment")
+    )
+
+gpu_vs_energy
+
+ggsave(
+    plot = gpu_vs_energy + pub_theme,
+    filename = file.path(fig_dir, "gpu_usage_vs_energy_consumption.pdf"),
+    device = cairo_pdf,
+    units = "cm",
+    width = 13.71, height = 8, dpi = 300
+)
 ```
 
 ## Plot GPU usage vs average power draw
 ```{r gpu-usage-vs-power-draw}
-ggscatter(df_clean_power,
-    x = "gpu_usage", y = "power_draw",
-    color = "training_environment",
-    size = 3, alpha = 0.7,
-    xlab = "GPU Usage (%)", ylab = "Average Power Draw (W)",
-    title = "GPU Usage vs Average Power Draw in DL Training"
+server_tdp <- df_clean_power %>%
+    filter(training_environment == "Server") %>%
+    summarise(tdp = mean(tdp, na.rm = TRUE)) %>%
+    pull(tdp)
+
+desktop_tdp <- df_clean_power %>%
+    filter(training_environment == "Desktop ML Engineer") %>%
+    summarise(tdp = mean(tdp, na.rm = TRUE)) %>%
+    pull(tdp)
+
+gpu_vs_power <- ggplot(
+    df_clean_power,
+    aes(x = gpu_usage, y = power_draw, color = training_environment),
+    size = 3, alpha = 0.7
 ) +
-    # Add a line for the TDP * GPU usage
-    geom_line(aes(y = gpu_usage * tdp), linetype = "dashed", color = "black") +
-    geom_text(aes(label = paste0("TDP: ", tdp, " W")), x = min(df_clean_power$gpu_usage) + 10, y = max(df_clean_power$power_draw) * 0.9, color = "red") +
-    geom_smooth(method = "lm", se = FALSE, aes(color = training_environment)) +
-    facet_wrap(~training_environment) +
-    theme(legend.position = "top")
+    geom_point() +
+    geom_line(aes(y = gpu_usage * tdp, linetype = "dashed")) +
+    geom_smooth(method = "lm", se = FALSE, aes(linetype = "solid")) +
+    # Add an element indicating that dashed lines represent TDP * GPU usage
+    scale_linetype_manual(
+        name = element_blank(),
+        values = c("dashed", "solid"),
+        labels = c("TDP x GPU usage", "Fit")
+    ) +
+    labs(
+        x = "GPU Usage (%)",
+        y = "Average Power Draw (W)",
+    ) +
+    guides(
+        color = guide_legend(title = element_blank(), order = 1),
+        linetype = guide_legend(order = 2)
+    ) +
+    theme(legend.direction = "vertical")
+
+
+gpu_vs_power
+
+ggsave(
+    plot = gpu_vs_power + pub_theme,
+    filename = file.path(fig_dir, "gpu_usage_vs_power_draw.pdf"),
+    device = cairo_pdf,
+    units = "cm",
+    width = 13.71, height = 8, dpi = 300
+)
+```
+
+```{r gpu-usage-vs-enegy-and-power}
+gpu_vs_energy <- gpu_vs_energy +
+    guides(color = "none")
+
+gpu_usage_vs_power_and_energy <- (gpu_vs_energy | gpu_vs_power) +
+    plot_layout(guides = "collect")
+
+ggsave(
+    plot = gpu_usage_vs_power_and_energy & pub_theme,
+    filename = file.path(fig_dir, "gpu_usage_vs_power_draw_and_energy.pdf"),
+    device = cairo_pdf,
+    units = "cm",
+    width = 13.71, height = 9, dpi = 300
+)
 ```
 
 ## Statistical analysis
@@ -133,6 +240,9 @@ summary(model_linear)
 # ANOVA to check for significance
 options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
 Anova(model_linear, type = 3)
+
+eta_squared(model_linear, partial = FALSE)      # Eta² (total variance explained)
+eta_squared(model_linear, partial = TRUE)       # Partial Eta² (variance explained after controlling for others)
 ```
 
 ##### Model diagnostics
@@ -179,26 +289,26 @@ compare_performance(model_global, model_linear, model_mixed, rank = TRUE)
 emms <- emmeans(model_linear, ~ gpu_usage * training_environment * architecture, at = list(gpu_usage = 0.9))
 emms
 pairwise_com <- pairs(emms)
+pairwise_com
 
 # Select non-significant pairs
 as.data.frame(pairwise_com) %>%
     filter(p.value > 0.05)
 
-pairs(emms, by = "training_environment", adjust = "tukey")
-pairs(emms, by = "architecture", adjust = "tukey")
-
 compact_letter_display <- cld(emms, Letters = letters, adjust = "sidak")
 
 print(compact_letter_display)
 
-ggplot(compact_letter_display, aes(x = interaction(gpu_usage, training_environment, architecture),
-                     y = emmean)) +
-  geom_col(fill = "skyblue") +
-  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2) +
-  geom_text(aes(label = .group), vjust = -0.5, color = "red") +
-  labs(x = "Condition", y = "Estimated Marginal Mean (GPU Usage)") +
-  theme_pubr() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+ggplot(compact_letter_display, aes(
+    x = interaction(gpu_usage, training_environment, architecture),
+    y = emmean
+)) +
+    geom_col(fill = "skyblue") +
+    geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2) +
+    geom_text(aes(label = .group), vjust = -0.5, color = "red") +
+    labs(x = "Condition", y = "Estimated Marginal Mean (GPU Usage)") +
+    theme_pubr() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 ### Power draw analysis
@@ -229,6 +339,9 @@ summary(model_linear_power_draw)
 ```{r anova-power-draw}
 options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
 Anova(model_linear_power_draw, type = 3)
+
+eta_squared(model_linear, partial = FALSE)      # Eta² (total variance explained)
+eta_squared(model_linear, partial = TRUE)       # Partial Eta² (variance explained after controlling for others)
 ```
 
 ##### Model diagnostics for power draw
@@ -271,17 +384,17 @@ testResiduals(sim_mixed_power_draw)
 check_model(model_mixed_power_draw)
 ```
 
-### Compare models for power draw
+#### Compare models for power draw
 ```{r compare-models-power-draw}
 compare_performance(model_global_power_draw, model_linear_power_draw, model_mixed_power_draw, rank = TRUE)
 ```
 
-### Post-hoc tests for power draw
+#### Post-hoc tests for power draw
 ```{r post-hoc-tests-power-draw}
 emms_power_draw <- emmeans(model_linear_power_draw, ~ gpu_usage * training_environment * architecture)
 emms_power_draw
-pairs(emms_power_draw, by = "training_environment", adjust = "tukey")
-pairs(emms_power_draw, by = "architecture", adjust = "tukey")
+
+pairs(emms_power_draw, adjust = "tukey")
 
 plot(emms_power_draw, comparisons = TRUE)
 ```
