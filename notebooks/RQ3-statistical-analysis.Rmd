@@ -197,7 +197,7 @@ gpu_vs_energy <- gpu_vs_energy +
     guides(color = "none")
 
 gpu_usage_vs_power_and_energy <- (gpu_vs_energy | gpu_vs_power) +
-    plot_layout(guides = "collect")
+    plot_layout(axes = "collect", guides = "collect")
 
 ggsave(
     plot = gpu_usage_vs_power_and_energy & pub_theme,
