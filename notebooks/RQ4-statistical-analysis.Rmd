@@ -1,6 +1,13 @@
 ---
 title: "RQ4: How can we accurately estimate energy consumption before training DL models for image classification?"
-output: html_notebook
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    code_folding: hide
+    theme: journal
+    df_print: paged
 author: "Santiago del Rey"
 knit: internalRmdTools::knit_to_reports
 ---
@@ -16,6 +23,7 @@ library(DHARMa) # residual diagnostics for mixed models
 library(performance)
 library(emmeans) # post hoc tests
 library(effects)
+library(effectsize) # for effect sizes
 library(broom)
 library(car)
 library(patchwork) # for combining plots
@@ -40,7 +48,7 @@ options(
   ggplot2.continuous.colour = function(...) scale_colour_viridis_c(..., option = viridis_scheme)
 )
 
-font_add("CMU Serif", regular = "cmunrm.otf") # You need the font installed
+font_add("CMU Serif", regular = "cmunrm.ttf") # You need the font installed
 showtext_auto()
 
 theme_set(theme_pubr(base_family = "CMU Serif") +
@@ -51,8 +59,7 @@ theme_set(theme_pubr(base_family = "CMU Serif") +
     legend.text = element_text(size = 16),
     strip.text = element_text(size = 18),
     legend.position = "top"
-  )
-)
+  ))
 
 pub_theme <- theme(
   plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
@@ -77,6 +84,7 @@ if (!dir.exists(fig_dir)) {
 df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-dataset.gzip") %>%
   rename(
     energy = `energy (MJ)`,
+    power_draw = `average gpu power (W)`,
     training_duration = `training duration (h)`,
     used_ram = `average ram used (MB)`,
     batch_size = `batch size`,
@@ -99,7 +107,7 @@ df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-
       "caltech101" ~ "Caltech 101"
     )
   ) %>%
-  select(energy_per_image, training_duration, epoch_duration, used_ram, batch_size, input_size, dataset, training_environment, allocated_ram)
+  select(energy_per_image, power_draw, training_duration, epoch_duration, used_ram, batch_size, input_size, dataset, training_environment, allocated_ram)
 ```
 
 ## Visualize the data
@@ -193,6 +201,56 @@ ggsave(
 )
 ```
 
+### Boxplots of average training duration and average power draw in the Caltech 101 dataset
+```{r training-power-visualization}
+tmp_df <- df_batch_input %>%
+  filter(dataset == "Caltech 101") %>%
+  mutate(
+    epoch_duration = epoch_duration * 60, # Convert to seconds
+  )
+
+training_duration_barplot <- ggplot(tmp_df, aes(x = input_size, y = epoch_duration, fill = batch_size)) +
+  geom_bar(stat = "summary", fun = "mean", position = "dodge") +
+  geom_errorbar(
+    stat = "summary",
+    fun.data = mean_cl_boot,
+    position = position_dodge(width = 0.9),
+    width = 0.2
+  ) +
+  labs(
+    x = "Input Size",
+    y = "Average Epoch Duration (seconds)",
+    fill = "Batch Size"
+  )
+
+power_draw_barplot <- ggplot(tmp_df, aes(x = input_size, y = power_draw, fill = batch_size)) +
+  geom_bar(stat = "summary", fun = "mean", position = "dodge") +
+  geom_errorbar(
+    stat = "summary",
+    fun.data = mean_cl_boot,
+    position = position_dodge(width = 0.9),
+    width = 0.2
+  ) +
+  labs(
+    x = "Input Size",
+    y = "Average Power Draw (W)",
+    fill = "Batch Size"
+  )
+
+training_power_plot <- (training_duration_barplot | power_draw_barplot) +
+  plot_layout(axes = "collect", guides = "collect")
+
+plot(training_power_plot)
+
+ggsave(
+  filename = file.path(fig_dir, "batch-and-input-size-effect-power-and-time-server.pdf"),
+  plot = training_power_plot & pub_theme,
+  device = cairo_pdf,
+  units = "cm",
+  width = 13.71, height = 8, dpi = 300
+)
+```
+
 ### Boxplot of epoch duration
 ```{r training-duration-boxplot}
 epoch_duration_boxplot <- ggplot(df_batch_input %>% filter(dataset == "Stanford Dogs"), aes(x = input_size, y = epoch_duration * 60, color = batch_size)) +
@@ -224,11 +282,11 @@ allocated_ram_energy <- ggplot(df_allocated_ram_energy, aes(x = allocated_ram, y
     y = "Energy Consumption (J/image)"
   )
 
-allocated_ram_time <- ggplot(df_allocated_ram_time, aes(x = allocated_ram, y = training_duration)) +
+allocated_ram_time <- ggplot(df_allocated_ram_time, aes(x = allocated_ram, y = epoch_duration * 60)) +
   geom_boxplot() +
   labs(
     x = "Allocated RAM (GB)",
-    y = "Training Duration (minutes)"
+    y = "Epoch Duration (seconds)"
   )
 
 allocated_ram_ram <- ggplot(df_allocated_ram_ram, aes(x = allocated_ram, y = used_ram)) +
@@ -269,15 +327,14 @@ model_lm <- lm(energy_per_image ~ batch_size * input_size * dataset, data = df_b
 summary(model_lm)
 ```
 
-```{r anova-linear-model}
-options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
-Anova(model_lm) # Type III ANOVA for linear models
-```
-
 #### Check assumptions of the linear model
 ```{r check-dharma}
 sim_res <- simulateResiduals(model_lm)
 testResiduals(sim_res)
+```
+
+```{r check-model}
+check_model(model_lm)
 ```
 
 ### Linear mixed model
@@ -321,9 +378,22 @@ sim_res_glm <- simulateResiduals(model_glm)
 testResiduals(sim_res_glm)
 ```
 
+```{r check-model-glm}
+check_model(model_glm)
+```
+
 ### Compare models
 ```{r model-comparison-glm}
 compare_performance(model_lm, model_lmm, model_glm, rank = TRUE)
+```
+
+### Significance testing and effect size
+```{r anova-linear-model}
+options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
+Anova(model_lm) # Type III ANOVA for linear models
+
+eta_squared(model_lm, partial = FALSE) # Calculate eta squared for effect sizes
+eta_squared(model_lm, partial = TRUE) # Partial eta squared for each term
 ```
 
 ### Post hoc tests
@@ -351,17 +421,17 @@ eff_plot <- ggplot(tidy_lm_filtered, aes(x = reorder(term, abs(estimate)), y = e
 ```
 
 Estimate marginal means for the interaction between batch size and input size, conditioned on the dataset.
-```{r post-hoc}
+```{r emmeans-comparisons}
 emm_lm <- emmeans(model_lm, ~ batch_size * input_size | dataset)
 emm_lm
 ```
 
 ```{r post-hoc-pairs}
-pairs(emm_lm, by = c("dataset", "batch_size"), adjust = "tukey")
+pairs(emm_lm, by = "dataset", adjust = "tukey")
 ```
 
 Plot the estimated marginal means.
-```{r fig.height=8, fig.width=15}
+```{r eem-plot, fig.height=8, fig.width=15}
 emm_df <- as.data.frame(emm_lm) %>%
   filter(!is.na(emmean))
 
@@ -382,19 +452,28 @@ combined_plot <- (eff_plot | emm_plot) +
 combined_plot
 ```
 
+
+
 ## Statistical analysis of the effects of allocated RAM on energy consumption
 ### Linear model with allocated RAM as a fixed effect
 ```{r linear-model-allocated-ram}
 model_lm_ram <- lm(energy_per_image ~ allocated_ram, data = df_allocated_ram_energy)
 summary(model_lm_ram)
 ```
-```{r anova-linear-model-allocated-ram}
-anova(model_lm_ram) # Type I ANOVA for linear models
-```
 #### Check assumptions of the linear model with allocated RAM
 ```{r check-dharma-allocated-ram}
 sim_res_ram <- simulateResiduals(model_lm_ram)
 testResiduals(sim_res_ram)
+```
+
+```{r check-model-allocated-ram}
+check_model(model_lm_ram)
+```
+
+#### Significance testing and effect size
+```{r anova-linear-model-allocated-ram}
+Anova(model_lm_ram) # Type I ANOVA for linear models
+eta_squared(model_lm_ram, partial = FALSE) # Calculate eta squared for effect sizes
 ```
 
 #### Post hoc tests for allocated RAM
@@ -413,18 +492,28 @@ plot(emm_ram, comparisons = TRUE) +
   )
 ```
 
-## Statistical analysis of the effects of allocated RAM on training duration
+## Statistical analysis of the effects of allocated RAM on epoch duration
 ### Linear model with allocated RAM as a fixed effect
 ```{r linear-model-training-duration}
-model_lm_duration <- lm(training_duration ~ allocated_ram, data = df_allocated_ram_time)
+model_lm_duration <- lm(epoch_duration * 60 ~ allocated_ram, data = df_allocated_ram_time)
 summary(model_lm_duration)
-anova(model_lm_duration) # Type I ANOVA for linear models
 ```
 #### Check assumptions of the linear model with allocated RAM
 ```{r check-dharma-training-duration}
 sim_res_duration <- simulateResiduals(model_lm_duration)
 testResiduals(sim_res_duration)
 ```
+
+```{r check-model-epoch}
+check_model(model_lm_duration)
+```
+
+#### Significance testing and effect size
+```{r anova-linear-model-training-duration}
+Anova(model_lm_duration) # Type I ANOVA for linear models
+eta_squared(model_lm_duration, partial = FALSE) # Calculate eta squared for effect sizes
+```
+
 #### Post hoc tests for allocated RAM on training duration
 ```{r post-hoc-training-duration}
 emm_duration <- emmeans(model_lm_duration, ~allocated_ram)
@@ -444,13 +533,21 @@ plot(emm_duration, comparisons = TRUE) +
 ```{r linear-model-average-ram-used}
 model_lm_ram_used <- lm(used_ram ~ allocated_ram, data = df_allocated_ram_ram)
 summary(model_lm_ram_used)
-anova(model_lm_ram_used) # Type I ANOVA for linear models
 ```
 
 #### Check assumptions of the linear model with allocated RAM
 ```{r check-dharma-average-ram-used}
 sim_res_ram_used <- simulateResiduals(model_lm_ram_used)
 testResiduals(sim_res_ram_used)
+```
+
+```{r check-model-average-ram-used}
+check_model(model_lm_ram_used)
+```
+#### Significance testing and effect size
+```{r anova-linear-model-average-ram-used}
+Anova(model_lm_ram_used) # Type I ANOVA for linear models
+eta_squared(model_lm_ram_used, partial = FALSE) # Calculate eta squared for effect sizes
 ```
 #### Post hoc tests for allocated RAM on average RAM used
 ```{r post-hoc-average-ram-used}
