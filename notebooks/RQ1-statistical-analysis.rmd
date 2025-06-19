@@ -14,6 +14,7 @@ library(arrow)
 library(lme4)
 library(lmerTest) # p-values for lmer
 library(DHARMa)
+library(performance)
 library(emmeans) # post hoc tests
 library(effectsize)
 library(ggplot2)
@@ -241,7 +242,7 @@ summary(model_energy)
 
 ## Model diagnostics
 
-```{r}
+```{r energy-dharma-diagnostics}
 sim_res_energy <- simulateResiduals(fittedModel = model_energy)
 res_df <- data.frame(
   scaled_residuals = sim_res_energy$scaledResiduals,
@@ -255,7 +256,7 @@ testResiduals(sim_res_energy)
 ### Remove the outliers detected in the residuals and refit the model
 The results of the outlier test indicate that there are some outliers in the residuals. We will remove these outliers based on the scaled residuals, which are the standardized residuals from the model.
 We will filter out any observations with scaled residuals outside the 2.5%–97.5% quantiles.
-```{r}
+```{r dharma-outliers}
 # Remove outliers based on the simulated residuals
 scaled_res <- sim_res_energy$scaledResiduals
 
@@ -273,16 +274,18 @@ filtered_energy_data[outlier_index, ]
 ```
 
 Refit the model after removing outliers
-```{r}
+```{r energy-refit-model}
 model_energy <- lm(energy ~ architecture * training_environment, data = filtered_energy_data)
 summary(model_energy)
 ```
 
 Now the diagnostics show that the model is well-fitted without significant outliers and the residuals are normally distributed.
-```{r}
+```{r refitted-model-diagnostics}
 sim_res_energy <- simulateResiduals(fittedModel = model_energy)
 
 testResiduals(sim_res_energy)
+
+check_model(model_energy)
 ```
 
 ## Significance testing
@@ -364,7 +367,7 @@ ggplot() +
 
 ## Data summary
 
-```{r}
+```{r gpu-data-summary}
 filtered_gpu_data %>%
   group_by(architecture, training_environment) %>%
   summarise(
@@ -414,7 +417,7 @@ ggsave(gpu_barplot + pub_theme,
 ```
 
 ## Linear Model
-```{r}
+```{r gpu-lm}
 max_val <- 100
 filtered_gpu_data$gpu_usage_reflected <- sqrt(max_val - filtered_gpu_data$gpu_usage + 1)
 
@@ -424,7 +427,7 @@ summary(model_gpu)
 
 ## Model diagnostics
 
-```{r}
+```{r gpu-lm-dharma-diagnostics}
 sim_res_gpu <- simulateResiduals(fittedModel = model_gpu)
 testResiduals(sim_res_gpu)
 ```
@@ -432,7 +435,7 @@ testResiduals(sim_res_gpu)
 ### Remove the outliers detected in the residuals and refit the model
 The results of the outlier test indicate that there are some outliers in the residuals. We will remove these outliers based on the scaled residuals, which are the standardized residuals from the model.
 We will filter out any observations with scaled residuals outside the 2.5%–97.5% quantiles.
-```{r}
+```{r gpu-dharma-outliers-removal}
 # Remove outliers based on the simulated residuals
 scaled_res_gpu <- sim_res_gpu$scaledResiduals
 # Identify outliers: residuals outside the 2.5%–97.5% quantiles
@@ -446,19 +449,21 @@ filtered_gpu_data[outlier_index_gpu, ]
 ```
 
 Refit the model after removing outliers
-```{r}
+```{r gpu-refit-model}
 model_gpu <- lm(gpu_usage_reflected ~ architecture * training_environment, data = filtered_gpu_data)
 summary(model_gpu)
 ```
 
 Now the diagnostics show that the model is well-fitted without significant outliers and the residuals are normally distributed.
-```{r}
+```{r gpu-refitted-diagnostics}
 sim_res_gpu <- simulateResiduals(fittedModel = model_gpu)
 testResiduals(sim_res_gpu)
+
+check_model(model_gpu)
 ```
 
 ## Significance testing
-```{r}
+```{r gpu-anova}
 options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
 Anova(model_gpu, type = 3)
 

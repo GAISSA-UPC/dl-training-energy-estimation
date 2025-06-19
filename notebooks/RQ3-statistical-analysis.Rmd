@@ -246,10 +246,8 @@ eta_squared(model_linear, partial = TRUE)       # Partial Eta² (variance explai
 ```
 
 ##### Model diagnostics
-```{r check-residuals}
-# Check residuals
-par(mfrow = c(2, 2))
-plot(model_linear)
+```{r check-linear}
+check_model(model_linear)
 ```
 
 ```{r check-dharma}
@@ -291,9 +289,9 @@ emms
 pairwise_com <- pairs(emms)
 pairwise_com
 
-# Select non-significant pairs
+# Select significant comparisons
 as.data.frame(pairwise_com) %>%
-    filter(p.value > 0.05)
+    filter(p.value < 0.05)
 
 compact_letter_display <- cld(emms, Letters = letters, adjust = "sidak")
 
