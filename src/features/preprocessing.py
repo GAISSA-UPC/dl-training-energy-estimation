@@ -170,7 +170,7 @@ def build_metrics_dataset(input_folder=None, save_to_file=False, process_all_fil
                 if not cpu_files and not gpu_files:
                     continue
                 experiment_name = f"{train_environment}-{dataset}-{architecture}"
-                if experiment_name == "cloud-stanford_dogs-inception_v3":
+                if experiment_name == "server-stanford_dogs-inception_v3":
                     experiment_names = [experiment_name, "memory-impact"]
                 else:
                     experiment_names = [experiment_name]
@@ -486,14 +486,14 @@ def build_analysis_dataset(metrics_file: Union[Path, None] = None, save_to_file:
     analysis_df = analysis_df.reset_index()
     analysis_df.rename(columns={"train_environment": "training environment"}, inplace=True)
     analysis_df.loc[
-        (analysis_df["training environment"] == "local") & (analysis_df["gpu model"] == "NVIDIA GeForce RTX 3070"),
+        (analysis_df["training environment"] == "desktop") & (analysis_df["gpu model"] == "NVIDIA GeForce RTX 3070"),
         "training environment",
-    ] = "local-v2"
+    ] = "desktop-v2"
     analysis_df.replace(
         {
-            "local": "Desktop Normal User",
-            "local-v2": "Desktop ML Engineer",
-            "cloud": "Server",
+            "desktop": "Desktop Normal User",
+            "desktop-v2": "Desktop ML Engineer",
+            "server": "Server",
         },
         inplace=True,
     )
@@ -553,7 +553,7 @@ def _get_mlflow_metrics(training_configuration: List, grouping_features: List, o
     mlflow_experiments = []
     for training_environment, dataset, architecture in training_configuration:
         experiment_name = f"{training_environment}-{dataset}-{architecture}"
-        if experiment_name == "cloud-stanford_dogs-inception_v3":
+        if experiment_name == "server-stanford_dogs-inception_v3":
             experiment_names = [experiment_name, "memory-impact"]
         else:
             experiment_names = [experiment_name]
