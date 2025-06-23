@@ -95,8 +95,7 @@ df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-
   filter(architecture == "inception_v3") %>%
   mutate(
     energy_per_image = (energy * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
-    training_duration = training_duration * 60, # Convert hours to minutes
-    epoch_duration = training_duration / `trained epochs`, # Calculate average epoch duration in minutes
+    epoch_duration = training_duration / `trained epochs` * 3600, # Calculate average epoch duration in seconds
     batch_size = factor(batch_size, levels = c("32", "64", "256")),
     input_size = factor(image_size, levels = c("(75, 75)", "(128, 128)", "(224, 224)")),
     allocated_ram = factor(allocated_ram, levels = c("8", "16", "24", "32")),
@@ -107,7 +106,7 @@ df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-
       "caltech101" ~ "Caltech 101"
     )
   ) %>%
-  select(energy_per_image, power_draw, training_duration, epoch_duration, used_ram, batch_size, input_size, dataset, training_environment, allocated_ram)
+  select(energy_per_image, power_draw, epoch_duration, used_ram, batch_size, input_size, dataset, training_environment, allocated_ram)
 ```
 
 ## Visualize the data
@@ -151,17 +150,18 @@ df_allocated_ram_time <- df %>%
   filter(batch_size == "256" & input_size == "(128, 128)" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
   group_by(allocated_ram) %>%
   mutate(
-    Q1 = quantile(training_duration, 0.25),
-    Q3 = quantile(training_duration, 0.75),
+    Q1 = quantile(epoch_duration, 0.25),
+    Q3 = quantile(epoch_duration, 0.75),
     IQR = Q3 - Q1,
-    is_outlier = training_duration < (Q1 - 1.5 * IQR) | training_duration > (Q3 + 1.5 * IQR)
+    is_outlier = epoch_duration < (Q1 - 1.5 * IQR) | epoch_duration > (Q3 + 1.5 * IQR)
   ) %>%
   ungroup() %>%
   filter(!is_outlier) %>%
   select(-Q1, -Q3, -IQR, -is_outlier)
 df_allocated_ram_time %>%
   group_by(allocated_ram) %>%
-  get_summary_stats(training_duration, type = "mean_sd")
+  get_summary_stats(epoch_duration, type = "mean_sd")
+
 df_allocated_ram_ram <- df %>%
   filter(batch_size == "256" & input_size == "(128, 128)" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
   group_by(allocated_ram) %>%
@@ -204,10 +204,7 @@ ggsave(
 ### Boxplots of average training duration and average power draw in the Caltech 101 dataset
 ```{r training-power-visualization}
 tmp_df <- df_batch_input %>%
-  filter(dataset == "Caltech 101") %>%
-  mutate(
-    epoch_duration = epoch_duration * 60, # Convert to seconds
-  )
+  filter(dataset == "Caltech 101")
 
 training_duration_barplot <- ggplot(tmp_df, aes(x = input_size, y = epoch_duration, fill = batch_size)) +
   geom_bar(stat = "summary", fun = "mean", position = "dodge") +
@@ -253,7 +250,7 @@ ggsave(
 
 ### Boxplot of epoch duration
 ```{r training-duration-boxplot}
-epoch_duration_boxplot <- ggplot(df_batch_input %>% filter(dataset == "Stanford Dogs"), aes(x = input_size, y = epoch_duration * 60, color = batch_size)) +
+epoch_duration_boxplot <- ggplot(df_batch_input %>% filter(dataset == "Stanford Dogs"), aes(x = input_size, y = epoch_duration, color = batch_size)) +
   geom_boxplot(outliers = FALSE) +
   labs(
     x = "Input Size",
@@ -282,7 +279,7 @@ allocated_ram_energy <- ggplot(df_allocated_ram_energy, aes(x = allocated_ram, y
     y = "Energy Consumption (J/image)"
   )
 
-allocated_ram_time <- ggplot(df_allocated_ram_time, aes(x = allocated_ram, y = epoch_duration * 60)) +
+allocated_ram_time <- ggplot(df_allocated_ram_time, aes(x = allocated_ram, y = epoch_duration)) +
   geom_boxplot() +
   labs(
     x = "Allocated RAM (GB)",
@@ -482,8 +479,6 @@ emm_ram <- emmeans(model_lm_ram, ~allocated_ram)
 emm_ram
 pairs(emm_ram, adjust = "tukey")
 
-eff_size(emm_ram, sigma = sigma(model_lm_ram), edf = df.residual(model_lm_ram))
-
 plot(emm_ram, comparisons = TRUE) +
   labs(
     title = "Estimated Marginal Means of Energy by Allocated RAM",
@@ -495,7 +490,7 @@ plot(emm_ram, comparisons = TRUE) +
 ## Statistical analysis of the effects of allocated RAM on epoch duration
 ### Linear model with allocated RAM as a fixed effect
 ```{r linear-model-training-duration}
-model_lm_duration <- lm(epoch_duration * 60 ~ allocated_ram, data = df_allocated_ram_time)
+model_lm_duration <- lm(epoch_duration ~ allocated_ram, data = df_allocated_ram_time)
 summary(model_lm_duration)
 ```
 #### Check assumptions of the linear model with allocated RAM
@@ -519,7 +514,7 @@ eta_squared(model_lm_duration, partial = FALSE) # Calculate eta squared for effe
 emm_duration <- emmeans(model_lm_duration, ~allocated_ram)
 emm_duration
 pairs(emm_duration, adjust = "tukey")
-eff_size(emm_duration, sigma = sigma(model_lm_duration), edf = df.residual(model_lm_duration))
+
 plot(emm_duration, comparisons = TRUE) +
   labs(
     title = "Estimated Marginal Means of Training Duration by Allocated RAM",
@@ -544,17 +539,19 @@ testResiduals(sim_res_ram_used)
 ```{r check-model-average-ram-used}
 check_model(model_lm_ram_used)
 ```
+
 #### Significance testing and effect size
 ```{r anova-linear-model-average-ram-used}
 Anova(model_lm_ram_used) # Type I ANOVA for linear models
 eta_squared(model_lm_ram_used, partial = FALSE) # Calculate eta squared for effect sizes
 ```
+
 #### Post hoc tests for allocated RAM on average RAM used
 ```{r post-hoc-average-ram-used}
 emm_ram_used <- emmeans(model_lm_ram_used, ~allocated_ram)
 emm_ram_used
 pairs(emm_ram_used, adjust = "tukey")
-eff_size(emm_ram_used, sigma = sigma(model_lm_ram_used), edf = df.residual(model_lm_ram_used))
+
 plot(emm_ram_used, comparisons = TRUE) +
   labs(
     title = "Estimated Marginal Means of Average RAM Used by Allocated RAM",
