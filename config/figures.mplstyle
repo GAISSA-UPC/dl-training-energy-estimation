@@ -1,8 +1,18 @@
+font.family : "serif"
+font.serif : "CMU Serif"
 font.weight : "bold"
-font.size : 18
+font.size : 12
 figure.autolayout : "true"
+figure.figsize : 5.4, 3.14
+figure.dpi : 300
+axes.titlesize : 12
+axes.labelsize : 10
 axes.grid : "false"
 axes.spines.right : "false"
 axes.spines.top : "false"
+xtick.labelsize : 9
+ytick.labelsize : 9
 scatter.edgecolors : "black"
-legend.fancybox : "true"
+legend.fancybox : "false"
+legend.fontsize : 9
+legend.framealpha : 0

@@ -2,8 +2,8 @@ import pickle
 import re
 
 import joblib
-import pandas as pd
 from matplotlib import pyplot as plt
+import pandas as pd
 from scipy import stats
 from sklearn.discriminant_analysis import StandardScaler
 from sklearn.metrics import root_mean_squared_error
@@ -115,6 +115,12 @@ energy_estimation = results.merge(
         ]
     ],
     on="run_id",
+)
+
+energy_estimation.to_parquet(
+    DATA_DIR / "analysis" / "processed" / "energy-estimation-results.gzip",
+    index=False,
+    compression="gzip",
 )
 
 print(

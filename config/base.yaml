@@ -1,6 +1,6 @@
 OUTPUT_DIR : 'out'
-FIGURES_DIR: 'out/figures'
 REPORTS_DIR: 'reports'
+FIGURES_DIR: 'reports/figures'
 DATA_DIR: 'data'
 DATASET_DIR: 'data/dataset'
 METRICS_DIR: 'data/metrics'
