@@ -182,7 +182,7 @@ make_energy_plot <- function(annotation_font_size = 16) {
     geom_bar(stat = "summary", fun = "mean", position = position_dodge()) +
     geom_errorbar(
       stat = "summary",
-      fun.data = mean_cl_boot,
+      fun.data = mean_sdl,
       position = position_dodge(width = 0.9),
       width = 0.2
     ) +
@@ -397,7 +397,7 @@ gpu_barplot <- ggplot(filtered_gpu_data, aes(x = architecture, y = gpu_usage, fi
   geom_bar(stat = "summary", fun = "median", position = position_dodge()) +
   geom_errorbar(
     stat = "summary",
-    fun.data = mean_cl_boot,
+    fun.data = mean_sdl,
     position = position_dodge(width = 0.9),
     width = 0.2
   ) +
