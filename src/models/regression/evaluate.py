@@ -231,4 +231,4 @@ for ax in fig.get_axes():
 
 plt.tight_layout()
 
-plt.savefig(FIGURES_DIR / "pdf" / "energy-estimation-methods-evaluation.pdf")
+plt.savefig(FIGURES_DIR / "RQ4" / "energy-estimation-methods-evaluation.pdf")

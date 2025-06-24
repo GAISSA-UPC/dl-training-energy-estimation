@@ -54,7 +54,7 @@ theme_set(theme_pubr(base_family = "CMU Serif") +
     ))
 
 pub_theme <- theme(
-    plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+    plot.title = element_text(size = 11, face = "bold", hjust = 0.5),
     axis.title = element_text(size = 10),
     axis.text = element_text(size = 9),
     legend.title = element_text(size = 10),
@@ -277,5 +277,145 @@ ggsave(
     device = cairo_pdf,
     units = "cm",
     width = 13.1, height = 8, dpi = 300
+)
+```
+
+## Plot energy estimation comparison by estimation method
+```{r load-data-energy-estimation-comparison, echo=FALSE}
+energy_estimation_comparison <- read_parquet("data/analysis/processed/energy-estimation-results.gzip")
+```
+
+```{r plot-energy-estimation-comparison}
+annotation_size <- 8 / ggplot2::.pt # Convert to relative size
+ga_r2 <- cor(
+    energy_estimation_comparison$`true energy (kJ)`,
+    energy_estimation_comparison$`estimated total energy (kJ) (GA)`
+)^2
+ga_r2 <- round(ga_r2, 3)
+
+ga_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `estimated total energy (kJ) (GA)`)) +
+    geom_point(alpha = 0.5) +
+    geom_abline(slope = 1, intercept = 0, color = "#E41A1C", linewidth = .8) +
+    geom_smooth(method = "lm", color = "#377EB8", se = FALSE, linewidth = .8) +
+    labs(
+        x = element_blank(),
+        y = "Predicted energy (kJ)",
+        title = "Green Algorithms"
+    ) +
+    # Add R2 value to the plot
+    annotate("text", x = 200, y = 1500, label = paste("R² =", ga_r2), color = "#377EB8", size = annotation_size)
+
+mlco2_r2 <- cor(
+    energy_estimation_comparison$`true energy (kJ)`,
+    energy_estimation_comparison$`estimated total energy (kJ) (MLCO2)`
+)^2
+mlco2_r2 <- round(mlco2_r2, 3)
+mlco2_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `estimated total energy (kJ) (MLCO2)`)) +
+    geom_point(alpha = 0.5) +
+    geom_smooth(aes(color = "Fitted"), method = "lm", se = FALSE, linewidth = .8) +
+    geom_line(aes(y = `true energy (kJ)`, color = "Diagonal"), linewidth = .8) +
+    labs(
+        x = "True energy (kJ)",
+        y = "Predicted energy (kJ)",
+        title = "MLCO2 Calculator"
+    ) +
+    # Add R2 value to the plot
+    annotate("text", x = 200, y = 1500, label = paste("R² =", mlco2_r2), color = "#377EB8", size = annotation_size) +
+    scale_color_manual(
+        name = NULL,
+        values = c("Diagonal" = "#E41A1C", "Fitted" = "#377EB8"),
+        breaks = c("Diagonal", "Fitted"),
+        labels = c("x=y", "Fitted")
+    ) +
+    guides(
+        color = guide_legend(ncol = 1)
+    ) +
+    theme(
+        legend.position = "inside",
+        legend.justification = c("right", "bottom"),
+        legend.box.just = "left",
+        legend.margin = margin(0, 0, 0, 0),
+        legend.background = element_rect(fill = "transparent")
+    )
+
+online_power_r2 <- cor(
+    energy_estimation_comparison$`true energy (kJ)`,
+    energy_estimation_comparison$`estimated total energy (kJ) (online power-based)`
+)^2
+online_power_r2 <- round(online_power_r2, 3)
+online_power_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `estimated total energy (kJ) (online power-based)`, yend = 2000)) +
+    geom_point(alpha = 0.5) +
+    geom_abline(slope = 1, intercept = 0, color = "#E41A1C", linewidth = .8) +
+    geom_smooth(method = "lm", color = "#377EB8", se = FALSE, linewidth = .8) +
+    labs(
+        x = "True energy (kJ)",
+        y = "Predicted energy (kJ)",
+        title = "Online Power-based"
+    ) +
+    # Add R2 value to the plot
+    annotate("text", x = 200, y = 1500, label = paste("R² =", online_power_r2), color = "#377EB8", size = annotation_size)
+
+online_epoch_energy_r2 <- cor(
+    energy_estimation_comparison$`true energy (kJ)`,
+    energy_estimation_comparison$`estimated total energy (kJ) (online epoch-energy-based)`
+)^2
+online_epoch_energy_r2 <- round(online_epoch_energy_r2, 3)
+online_epoch_energy_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `estimated total energy (kJ) (online epoch-energy-based)`, yend = 2000)) +
+    geom_point(alpha = 0.5) +
+    geom_abline(slope = 1, intercept = 0, color = "#E41A1C", linewidth = .8) +
+    geom_smooth(method = "lm", color = "#377EB8", se = FALSE, linewidth = .8) +
+    labs(
+        x = "True energy (kJ)",
+        y = "Predicted energy (kJ)",
+        title = "Online Epoch-energy-based"
+    ) +
+    # Add R2 value to the plot
+    annotate("text", x = 200, y = 1500, label = paste("R² =", online_epoch_energy_r2), color = "#377EB8", size = annotation_size)
+
+offline_power_r2 <- cor(
+    energy_estimation_comparison$`true energy (kJ)`,
+    energy_estimation_comparison$`power estimator energy (kJ)`
+)^2
+offline_power_r2 <- round(offline_power_r2, 3)
+offline_power_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `power estimator energy (kJ)`, yend = 2000)) +
+    geom_point(alpha = 0.5) +
+    geom_abline(slope = 1, intercept = 0, color = "#E41A1C", linewidth = .8) +
+    geom_smooth(method = "lm", color = "#377EB8", se = FALSE, linewidth = .8) +
+    labs(
+        x = "True energy (kJ)",
+        y = "Predicted energy (kJ)",
+        title = "Offline Power-based"
+    ) +
+    # Add R2 value to the plot
+    annotate("text", x = 200, y = 1500, label = paste("R² =", offline_power_r2), color = "#377EB8", size = annotation_size)
+
+offline_epoch_energy_r2 <- cor(
+    energy_estimation_comparison$`true energy (kJ)`,
+    energy_estimation_comparison$`energy estimator energy (kJ)`
+)^2
+offline_epoch_energy_r2 <- round(offline_epoch_energy_r2, 3)
+offline_epoch_energy_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `energy estimator energy (kJ)`, yend = 2000)) +
+    geom_point(alpha = 0.5) +
+    geom_abline(slope = 1, intercept = 0, color = "#E41A1C", linewidth = .8) +
+    geom_smooth(method = "lm", color = "#377EB8", se = FALSE, linewidth = .8) +
+    labs(
+        x = "True energy (kJ)",
+        y = "Predicted energy (kJ)",
+        title = "Offline Epoch-energy-based"
+    ) +
+    # Add R2 value to the plot
+    annotate("text", x = 200, y = 1500, label = paste("R² =", offline_epoch_energy_r2), color = "#377EB8", size = annotation_size)
+
+combined_energy_estimation_plot <- ga_plot + mlco2_plot + online_power_plot + online_epoch_energy_plot + offline_power_plot + offline_epoch_energy_plot +
+    plot_layout(ncol = 2, nrow = 3, axes = "collect")
+
+combined_energy_estimation_plot
+
+ggsave(
+    plot = combined_energy_estimation_plot & pub_theme,
+    filename = file.path(fig_dir, "energy-estimation-methods-evaluation.pdf"),
+    device = cairo_pdf,
+    units = "cm",
+    width = 13.1, height = 12, dpi = 300
 )
 ```
