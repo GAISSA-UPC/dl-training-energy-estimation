@@ -394,37 +394,14 @@ eta_squared(model_lm, partial = TRUE) # Partial eta squared for each term
 ```
 
 ### Post hoc tests
-Estimate the effect sizes of the fixed effects in the model.
-```{r effect-sizes}
-# Tidy the model for plotting
-tidy_lm <- broom::tidy(model_lm)
-
-# Filter out intercept and sort by absolute effect size
-tidy_lm_filtered <- tidy_lm[tidy_lm$term != "(Intercept)", ]
-tidy_lm_filtered <- tidy_lm_filtered[order(abs(tidy_lm_filtered$estimate), decreasing = TRUE), ]
-# Filter out terms with NA estimates
-tidy_lm_filtered <- tidy_lm_filtered %>%
-  filter(!is.na(estimate))
-
-# Plot
-eff_plot <- ggplot(tidy_lm_filtered, aes(x = reorder(term, abs(estimate)), y = estimate)) +
-  geom_bar(stat = "identity") +
-  coord_flip() +
-  labs(
-    title = "Effect Sizes",
-    x = "Term",
-    y = "Estimate (Energy Consumption Impact)"
-  )
-```
-
 Estimate marginal means for the interaction between batch size and input size, conditioned on the dataset.
 ```{r emmeans-comparisons}
-emm_lm <- emmeans(model_lm, ~ batch_size * input_size | dataset)
+emm_lm <- emmeans(model_lm, ~ batch_size * input_size * dataset)
 emm_lm
 ```
 
 ```{r post-hoc-pairs}
-pairs(emm_lm, by = "dataset", adjust = "tukey")
+pairs(emm_lm, adjust = "tukey")
 ```
 
 Plot the estimated marginal means.
@@ -432,7 +409,7 @@ Plot the estimated marginal means.
 emm_df <- as.data.frame(emm_lm) %>%
   filter(!is.na(emmean))
 
-emm_plot <- ggplot(emm_df, aes(x = batch_size, y = emmean, group = input_size, color = input_size)) +
+ggplot(emm_df, aes(x = batch_size, y = emmean, group = input_size, color = input_size)) +
   geom_line(linewidth = 1) +
   geom_point(size = 3) +
   facet_wrap(~dataset) +
@@ -442,11 +419,6 @@ emm_plot <- ggplot(emm_df, aes(x = batch_size, y = emmean, group = input_size, c
     y = "Predicted Energy Consumption",
     color = "Input Size"
   )
-
-combined_plot <- (eff_plot | emm_plot) +
-  plot_annotation(title = "Energy Consumption Analysis", theme = theme(plot.title = element_text(hjust = 0.5)))
-
-combined_plot
 ```
 
 
