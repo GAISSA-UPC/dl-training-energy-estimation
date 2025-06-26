@@ -1,7 +1,14 @@
 ---
 title: "RQ2: Do gains in correctness justify energy-greedy architectures?"
 author: "Santiago del Rey"
-output: html_notebook
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    code_folding: hide
+    theme: journal
+    df_print: paged
 knit: internalRmdTools::knit_to_reports
 ---
 

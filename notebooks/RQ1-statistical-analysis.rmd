@@ -1,6 +1,13 @@
 ---
 title: "RQ1: What is the impact of model architecture and training environment on image classification training concerning energy consumption and GPU usage?"
-output: html_notebook
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    code_folding: hide
+    theme: journal
+    df_print: paged
 author: "Santiago del Rey"
 knit: internalRmdTools::knit_to_reports
 ---
