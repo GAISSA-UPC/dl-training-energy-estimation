@@ -1,7 +1,14 @@
 ---
 title: "RQ3: Is there a relationship between GPU usage and energy consumption when training DL models?"
 author: "Santiago del Rey"
-output: html_notebook
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    toc_float: true
+    code_folding: hide
+    theme: journal
+    df_print: paged
 knit: internalRmdTools::knit_to_reports
 ---
 ```{r setup, include=FALSE}

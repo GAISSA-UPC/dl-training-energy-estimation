@@ -145,8 +145,8 @@ cumm_plot <- ggplot() +
     scale_color_manual(
         name = NULL,
         values = c(
-            "Desktop Normal User" = "#440154FF",
-            "Desktop ML Engineer" = "#21908CFF",
+            "Desktop Normal User" = "#21908CFF",
+            "Desktop ML Engineer" = "#440154",
             "Server" = "#FDE725FF",
             "All" = "orange",
             "90%" = "black"
@@ -171,7 +171,7 @@ cumm_plot <- ggplot() +
     scale_x_continuous(breaks = seq(0, max(regimes_df$stabilizing_epoch), by = 10)) +
     guides(
         color = guide_legend(
-            override.aes = list(linetype = c("dotted", "dotted", "dotted", "dashed", "dashed")),
+            override.aes = list(linetype = c("solid", "solid", "solid", "dashed", "dashed")),
             ncol = 1
         ),
         linetype = "none"
