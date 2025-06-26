@@ -31,7 +31,7 @@ library(ggplot2)
 library(ggpubr) # for publication-ready plots
 library(viridis)
 library(showtext)
-library(dplyr)
+library(tidyverse)
 ```
 
 ```{r setup-fonts, include=FALSE}
@@ -113,7 +113,7 @@ df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-
 ### Data summary
 ```{r data-summary}
 df_batch_input <- df %>%
-  filter(training_environment == "Server" & allocated_ram == 16) %>%
+  filter(training_environment == "Desktop ML Engineer" & dataset != "ChessLive") %>%
   group_by(batch_size, input_size, dataset) %>%
   mutate(
     Q1 = quantile(energy_per_image, 0.25),
@@ -385,31 +385,58 @@ compare_performance(model_lm, model_lmm, model_glm, rank = TRUE)
 ```
 
 ### Significance testing and effect size
-```{r anova-linear-model}
+```{r, anova-batch-input}
 options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
-Anova(model_lm) # Type III ANOVA for linear models
+anova_results <- Anova(model_glm) # Type III ANOVA for linear models
+anova_results
 
-eta_squared(model_lm, partial = FALSE) # Calculate eta squared for effect sizes
-eta_squared(model_lm, partial = TRUE) # Partial eta squared for each term
+non_significant_terms <- anova_results %>%
+  filter(`Pr(>Chisq)` > 0.05)
+```
+
+```{r, non-significant-batch-input, eval=!(plyr::empty(non_significant_terms))}
+knitr::asis_output("### Non-significant terms")
+non_significant_terms
+```
+
+```{r, eta-squared-batch-input}
+eta_squared(model_glm, partial = FALSE) # Calculate eta squared for effect sizes
+eta_squared(model_glm, partial = TRUE) # Partial eta squared for each term
 ```
 
 ### Post hoc tests
 Estimate marginal means for the interaction between batch size and input size, conditioned on the dataset.
 ```{r emmeans-comparisons}
-emm_lm <- emmeans(model_lm, ~ batch_size * input_size * dataset)
+emm_lm <- emmeans(model_glm, ~ batch_size * input_size * dataset, type = "response")
 emm_lm
 ```
 
+#### Calculate pairwise comparisons with Tukey adjustment
 ```{r post-hoc-pairs}
-pairs(emm_lm, adjust = "tukey")
+pairwise_emm <- pairs(emm_lm, by = "dataset", adjust = "tukey")
+
+pairwise_emm
+
+non_significant_pairs <- as.data.frame(pairwise_emm) %>%
+  filter(p.value > 0.05)
 ```
 
-Plot the estimated marginal means.
+```{r, non-significant-pairs, eval=!(plyr::empty(non_significant_pairs))}
+knitr::asis_output("### Non-significant pairwise comparisons")
+non_significant_pairs
+```
+
+#### Calculate energy hedges' g for the estimated marginal means
+```{r, energy-hedges-g}
+eff_size(emm_lm, by="dataset", sigma = sigma(model_glm), edf = df.residual(model_glm), type = "hedges")
+```
+
+#### Plot the estimated marginal means.
 ```{r eem-plot, fig.height=8, fig.width=15}
 emm_df <- as.data.frame(emm_lm) %>%
-  filter(!is.na(emmean))
+  filter(!is.na(response))
 
-ggplot(emm_df, aes(x = batch_size, y = emmean, group = input_size, color = input_size)) +
+ggplot(emm_df, aes(x = batch_size, y = response, group = input_size, color = input_size)) +
   geom_line(linewidth = 1) +
   geom_point(size = 3) +
   facet_wrap(~dataset) +
