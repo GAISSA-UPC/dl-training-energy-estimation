@@ -279,13 +279,14 @@ pf_points_df <- pf@pareto_front
 pf_points_df
 
 pareto_plot <- ggplot(df_clean, aes(x = energy, y = f1_score, color = architecture, shape = training_environment)) +
-    geom_point(size = 1, alpha = 0.7) +
+    geom_point(size = 0.9, alpha = 0.9) +
     geom_line(data = pf_points_df, aes(x = energy, y = f1_score, group = 1), linewidth = 1.1, alpha = 0.8, color = "black") +
     geom_star(data = pf_points_df, aes(x = energy, y = f1_score, fill = architecture, group = 1), size = 1.5, alpha = 1, show.legend = FALSE) +
     labs(
         x = "Total energy consumption (MJ)",
         y = "F1 Score",
     ) +
+    scale_color_viridis_d(end= 0.8, option = viridis_scheme) +
     guides(color = guide_legend(title = "Architecture", nrow = 3), shape = guide_legend(title = "Training Environment"), fill = FALSE) +
     theme(
         legend.position = "inside",
