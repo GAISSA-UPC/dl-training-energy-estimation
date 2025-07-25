@@ -216,8 +216,8 @@ rmse_df <- energy_estimation_data %>%
     )
 
 rmse_window_plot <- ggplot(rmse_df, aes(x = `window size`)) +
-    geom_line(aes(y = rmse_method_1, color = "Power-based"), linewidth = 0.5) +
-    geom_line(aes(y = rmse_method_2, color = "Epoch-energy-based"), linetype = "dashed", linewidth = 0.5) +
+    geom_line(aes(y = rmse_method_1, color = "STEP-P"), linewidth = 0.5) +
+    geom_line(aes(y = rmse_method_2, color = "STEP-E"), linetype = "dashed", linewidth = 0.5) +
     labs(
         x = "Window size (epochs)",
         y = "RMSE (kJ)",
@@ -225,7 +225,7 @@ rmse_window_plot <- ggplot(rmse_df, aes(x = `window size`)) +
     ) +
     scale_color_manual(
         name = NULL,
-        values = c("Power-based" = "#440154FF", "Epoch-energy-based" = "#21908CFF")
+        values = c("STEP-P" = "#440154FF", "STEP-E" = "#21908CFF")
     )
 
 rmse_window_plot

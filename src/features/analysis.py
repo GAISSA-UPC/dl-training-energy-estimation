@@ -433,7 +433,7 @@ def find_stabilizing_point(runs, metrics: pd.DataFrame, m: int, L: int, save: bo
     regimes_df["elapsed time"] = pd.to_numeric(regimes_df["elapsed time"])
     if save:
         regimes_df.to_parquet(DATA_DIR / "analysis" / "processed" / "regimes.gzip", compression="gzip")
-        with open(DATA_DIR / "analysis" / "processed" / "cloud_inception_mps.pkl", "wb") as f:
+        with open(DATA_DIR / "analysis" / "processed" / "server_inception_mps.pkl", "wb") as f:
             pickle.dump(profiles, f)
     return regimes_df, profiles
 
@@ -541,13 +541,13 @@ def build_energy_estimation(mean_power_draw, stabilizing_epoch):
     energy_estimation["total gpu usage (%)"] = energy_estimation["total gpu usage (%)"] / 100
 
     # energy = window average power * training duration
-    energy_estimation["estimated energy (kJ) (online power-based)"] = (
+    energy_estimation["estimated energy (kJ) (STEP-P)"] = (
         (energy_estimation["mean gpu power draw"].fillna(0) + energy_estimation["mean ram power draw"].fillna(0))
         * energy_estimation["training duration (h)"]
         * HOURS_TO_SECONDS
         * JOULES_TO_KJOULES
     )
-    energy_estimation["estimated total energy (kJ) (online power-based)"] = (
+    energy_estimation["estimated total energy (kJ) (STEP-P)"] = (
         (energy_estimation["mean gpu power draw"].fillna(0) + energy_estimation["mean ram power draw"].fillna(0))
         * energy_estimation["total training duration (h)"]
         * HOURS_TO_SECONDS
@@ -555,12 +555,12 @@ def build_energy_estimation(mean_power_draw, stabilizing_epoch):
     )
 
     # energy = window total energy * #epochs/window size + unstable epochs energy
-    energy_estimation["estimated energy (kJ) (online epoch-energy-based)"] = (
+    energy_estimation["estimated energy (kJ) (STEP-E)"] = (
         energy_estimation["energy (J)"]
         * (energy_estimation["n_epochs"] / energy_estimation["window size"])
         * JOULES_TO_KJOULES
     )
-    energy_estimation["estimated total energy (kJ) (online epoch-energy-based)"] = (
+    energy_estimation["estimated total energy (kJ) (STEP-E)"] = (
         energy_estimation["energy (J)"] * ((energy_estimation["n_epochs"]) / energy_estimation["window size"])
         + energy_estimation["initial energy (J)"]
     ) * JOULES_TO_KJOULES
