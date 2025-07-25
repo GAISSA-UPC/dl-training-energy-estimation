@@ -381,13 +381,13 @@ def plot_regime_change(run, epoch_ends, cac, regime_change, breaking_epoch):
     axs[1].axvline(x=run.iloc[regime_change].timestamp, linestyle="dashed", color="blue")
 
 
-def find_stabilizing_point(runs, metrics: pd.DataFrame, m: int, L: int, save: bool = False):
+def find_stabilizing_point(runs: list[str], metrics: pd.DataFrame, m: int, L: int, save: bool = False):
     """
     Find the power consumption stabilizing point for a set of runs.
 
     Parameters
     ----------
-    runs : array_like
+    runs : list[str]
         Array of run IDs.
     metrics : pandas.DataFrame
         Dataframe containing the metrics for all runs.
@@ -405,7 +405,7 @@ def find_stabilizing_point(runs, metrics: pd.DataFrame, m: int, L: int, save: bo
     profiles : dict
         Dictionary containing the matrix profile, cac and regime locations for each run.
     """
-    regimes = np.zeros((runs.shape[0], 3), dtype=object)
+    regimes = np.zeros((len(runs), 3), dtype=object)
     profiles = {}
     for i, (run_id, run) in tqdm(
         enumerate(metrics.loc[metrics["run_id"].isin(runs)].groupby("run_id")),
@@ -433,7 +433,7 @@ def find_stabilizing_point(runs, metrics: pd.DataFrame, m: int, L: int, save: bo
     regimes_df["elapsed time"] = pd.to_numeric(regimes_df["elapsed time"])
     if save:
         regimes_df.to_parquet(DATA_DIR / "analysis" / "processed" / "regimes.gzip", compression="gzip")
-        with open(DATA_DIR / "analysis" / "processed" / "server_inception_mps.pkl", "wb") as f:
+        with open(DATA_DIR / "analysis" / "processed" / "matrix-profiles.pkl", "wb") as f:
             pickle.dump(profiles, f)
     return regimes_df, profiles
 

@@ -138,6 +138,7 @@ if __name__ == "__main__":
     df = df.replace(
         {
             "local": "desktop",
+            "local-v2": "desktop-v2",
             "cloud": "server",
         }
     )
@@ -160,7 +161,7 @@ if __name__ == "__main__":
     )
 
     df = pd.read_parquet(METRICS_DIR / "interim" / "model_metrics.gzip")
-    df = df.replace({"local": "desktop", "cloud": "server"})
+    df = df.replace({"local": "desktop", "cloud": "server", "local-v2": "desktop-v2"})
     df.to_parquet(
         METRICS_DIR / "interim" / "model_metrics.gzip",
         compression="gzip",
