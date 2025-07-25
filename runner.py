@@ -1,6 +1,6 @@
+from argparse import ArgumentParser
 import os
 import time
-from argparse import ArgumentParser
 
 from src.data.datasets import Datasets
 from src.environment import DATASET_DIR
@@ -20,7 +20,7 @@ def parse_args():
     parser.add_argument(
         "environment",
         help="The type of training environment.",
-        choices=["local", "cloud"],
+        choices=["desktop", "server"],
         type=str,
     )
     parser.add_argument(

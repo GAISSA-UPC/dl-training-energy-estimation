@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 
+from argparse import ArgumentParser
 import csv
+from datetime import datetime
 import os
 import shlex
 import subprocess
 import time
-from argparse import ArgumentParser
-from datetime import datetime
 
 import pandas as pd
 
@@ -36,7 +36,7 @@ parser = ArgumentParser()
 parser.add_argument(
     "environment",
     help="The environment to run the profiling in.",
-    choices=["local", "cloud"],
+    choices=["desktop", "server"],
     type=str,
 )
 parser.add_argument(

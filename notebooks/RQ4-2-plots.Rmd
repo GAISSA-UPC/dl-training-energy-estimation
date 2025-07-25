@@ -241,8 +241,8 @@ rmse_df <- energy_estimation_by_epoch_start %>%
     )
 
 rmse_epoch_plot <- ggplot(rmse_df, aes(x = `stabilizing epoch`)) +
-    geom_line(aes(y = rmse_method_1, color = "Power-based"), linewidth = 0.5) +
-    geom_line(aes(y = rmse_method_2, color = "Epoch-energy-based"), linetype = "dashed", linewidth = 0.5) +
+    geom_line(aes(y = rmse_method_1, color = "STEP-P"), linewidth = 0.5) +
+    geom_line(aes(y = rmse_method_2, color = "STEP-E"), linetype = "dashed", linewidth = 0.5) +
     labs(
         x = "Stabilizing epoch",
         y = "RMSE (kJ)",
@@ -250,7 +250,7 @@ rmse_epoch_plot <- ggplot(rmse_df, aes(x = `stabilizing epoch`)) +
     ) +
     scale_color_manual(
         name = NULL,
-        values = c("Power-based" = "#440154FF", "Epoch-energy-based" = "#21908CFF")
+        values = c("STEP-P" = "#440154FF", "STEP-E" = "#21908CFF")
     )
 
 rmse_epoch_plot
@@ -350,7 +350,7 @@ online_power_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (
     labs(
         x = "True energy (kJ)",
         y = "Predicted energy (kJ)",
-        title = "Online Power-based"
+        title = "STEP-P"
     ) +
     # Add R2 value to the plot
     annotate("text", x = 200, y = 1500, label = paste("R² =", online_power_r2), color = "#377EB8", size = annotation_size)
@@ -367,7 +367,7 @@ online_epoch_energy_plot <- ggplot(energy_estimation_comparison, aes(x = `true e
     labs(
         x = "True energy (kJ)",
         y = "Predicted energy (kJ)",
-        title = "Online Energy-based"
+        title = "STEP-E"
     ) +
     # Add R2 value to the plot
     annotate("text", x = 200, y = 1500, label = paste("R² =", online_epoch_energy_r2), color = "#377EB8", size = annotation_size)
@@ -384,7 +384,7 @@ offline_power_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy 
     labs(
         x = "True energy (kJ)",
         y = "Predicted energy (kJ)",
-        title = "Offline Power-based"
+        title = "PRE-P"
     ) +
     # Add R2 value to the plot
     annotate("text", x = 200, y = 1500, label = paste("R² =", offline_power_r2), color = "#377EB8", size = annotation_size)
@@ -401,7 +401,7 @@ offline_epoch_energy_plot <- ggplot(energy_estimation_comparison, aes(x = `true 
     labs(
         x = "True energy (kJ)",
         y = "Predicted energy (kJ)",
-        title = "Offline Energy-based"
+        title = "PRE-E"
     ) +
     # Add R2 value to the plot
     annotate("text", x = 200, y = 1500, label = paste("R² =", offline_epoch_energy_r2), color = "#377EB8", size = annotation_size)
