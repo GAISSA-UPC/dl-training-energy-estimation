@@ -1,6 +1,6 @@
 # dl-energy-estimation
 
-Replication package for the paper "How to use model architecture and training environment to estimate the energy consumption of DL training".
+Replication package for the paper "Effects of model architecture and training environment on Deep Learning training energy consumption".
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.11505891.svg)](https://doi.org/10.5281/zenodo.11505891)
 
@@ -31,6 +31,14 @@ To run the script, you can execute the following command:
 
 ```bash
 Rscript install_packages.R
+```
+
+#### Fonts
+
+This project uses the [Computer Modern Unicode](https://ctan.org/pkg/cm-unicode) font for the plots. You can install it in Ubuntu-based systems by running the following command:
+
+```bash
+sudo apt install fonts-cmu
 ```
 
 ### MLflow configuration
@@ -73,10 +81,10 @@ __WARNING! The memory limit value is just an example. Do not take it as a refere
 Once the environment is set up, you can run the experiment by executing the following command:
 
 ```console
-$ python -m run_experiments [-h] [--experiment-name EXPERIMENT_NAME] {local,cloud} {experiment_1.yaml,experiment_2.yaml,experiment_3.yaml}
+$ python -m run_experiments [-h] [--experiment-name EXPERIMENT_NAME] {desktop,server} {experiment_1.yaml,experiment_2.yaml,experiment_3.yaml}
 
 positional arguments:
-  {local,cloud}         The environment to run the profiling in.
+  {desktop,server}         The environment to run the profiling in.
   {experiment_1.yaml,experiment_2.yaml,experiment_3.yaml}
                         The name of the configuration file to use.
 
@@ -86,17 +94,17 @@ options:
                         The name of the MLflow experiment.
 ```
 
-The raw measurements for each architecture will be saved in the `data/metrics/raw/{local, cloud}/architecture_name` folder.
+The raw measurements for each architecture will be saved in the `data/metrics/raw/{desktop, server}/architecture_name` folder.
 If MLflow is enabled, the measurements will also be saved in the MLflow tracking server, together with the trained models.
 If not, the trained models will be saved in the `models` folder and the training history will be saved with the raw measurements as `performance-%Y%m%dT%H%M%S.csv`.
 
 You can also train a single model by executing the following command:
 
 ```console
-$ python -m runner [-h] [--warmup] {local,cloud} {experiment_1.yaml,experiment_2.yaml,experiment_3.yaml} {single-run} ...
+$ python -m runner [-h] [--warmup] {desktop,server} {experiment_1.yaml,experiment_2.yaml,experiment_3.yaml} {single-run} ...
 
 positional arguments:
-  {local,cloud}         The type of training environment.
+  {desktop,server}         The type of training environment.
   {experiment_1.yaml,experiment_2.yaml,experiment_3.yaml}
                         The configuration file to use.
   {single-run}          sub-command help

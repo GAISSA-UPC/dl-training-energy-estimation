@@ -3,9 +3,7 @@
 
 cff-version: 1.2.0
 title: >-
-  How to use model architecture and training environment to
-  estimate the energy consumption of DL training -
-  Replication package
+  Effects of model architecture and training environment on Deep Learning training energy consumption - Replication package
 message: >-
   If you use this software, please cite it using the
   metadata from this file.
