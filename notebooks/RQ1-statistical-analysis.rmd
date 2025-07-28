@@ -109,8 +109,6 @@ df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-
   select(energy, gpu_usage, architecture, training_environment)
 ```
 
-### Outlier filtering functions
-
 ```{r, filter-outliers}
 # Define a function to filter outliers of a given variable on an input data frame
 filter_outliers <- function(df, variable) {
@@ -320,8 +318,10 @@ pair_comparison <- pairs(emm_energy, type = "response")
 # To view results:
 summary(emm_energy)
 summary(pair_comparison)
+```
 
-print("Non-significant pairwise comparisons:")
+Below we show the non-significant pairwise comparisons
+```{r pairwise-energy}
 pair_comparison_df <- as.data.frame(pair_comparison)
 pair_comparison_df %>%
   filter(p.value > 0.05) %>%
@@ -506,12 +506,15 @@ emm_gpu_df
 emm_pairs_gpu <- pairs(emm_gpu, type = "response")
 
 emm_pairs_gpu_df <- as.data.frame(emm_pairs_gpu)
+```
 
-print("Non-significant pairwise comparisons:")
+Below we show the non-significant pairwise comparisons.
+```{r}
 emm_pairs_gpu_df %>%
   filter(p.value > 0.05) %>%
   select(contrast, estimate, SE, df, t.ratio, p.value)
 ```
+
 Plot the interaction effects
 ```{r}
 # Set the desired order for the x axis
@@ -556,7 +559,6 @@ ggplot() +
 ```
 
 ## Visualize estimated energy consumption and gpu usage by architecture and training environment
-Show the estimated energy consumption and GPU usage by architecture and training environment in two plots side by side.
 ```{r fig.align="center", fig.width=14}
 energy_plot <- ggplot() +
   geom_jitter(
