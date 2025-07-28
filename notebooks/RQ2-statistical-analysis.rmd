@@ -52,7 +52,14 @@ options(
     ggplot2.continuous.colour = function(...) scale_colour_viridis_c(..., option = viridis_scheme)
 )
 
-font_add("CMU Serif", regular = "cmunrm.ttf") # You need the font installed
+tryCatch(
+    {
+        font_add("CMU Serif", regular = "cmunrm.ttf") # You need the font installed
+    },
+    error = function(e) {
+        font_add("CMU Serif", regular = "cmunrm.otf") # Use the .otf file if the .ttf is not available
+    }
+)
 showtext_auto()
 
 theme_set(theme_pubr(base_family = "CMU Serif") +

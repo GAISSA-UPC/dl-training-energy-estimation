@@ -45,11 +45,6 @@ data = pd.read_parquet(
 )
 
 
-with open(DATA_DIR / "analysis" / "processed" / "mean_power_draw_by_window.pkl", "rb") as f:
-    mean_power_draw = pickle.load(f)
-
-energy_estimation = build_energy_estimation(mean_power_draw, 10).query("`window size` == 5")
-
 print("Preprocessing data...")
 # Split image size into image height and image width
 data["image height"] = data["image size"].apply(lambda x: int(re.findall(r"\d+", x)[0]))
@@ -85,22 +80,24 @@ _, X_test, _, y_test = train_test_split(X_processed, y, test_size=0.30, random_s
 test_run_ids = data.loc[X_test.index, "run_id"]
 
 with open(MODELS_DIR / "kernel-ridge-regression-power-estimator.joblib", "rb") as f:
-    power_estimator = joblib.load(f)
+    pre_p = joblib.load(f)
 
-y_pred = power_estimator.predict(X_test)
-power_estimator_energy_pred = (
-    y_pred * data.loc[X_test.index, "training duration (h)"] * HOURS_TO_SECONDS * JOULES_TO_KJOULES
-)
+y_pred = pre_p.predict(X_test)
+pre_p_pred = y_pred * data.loc[X_test.index, "training duration (h)"] * HOURS_TO_SECONDS * JOULES_TO_KJOULES
 
 with open(MODELS_DIR / "kernel-ridge-regression-full-energy-estimator.joblib", "rb") as f:
-    energy_estimator = joblib.load(f)
+    pre_e = joblib.load(f)
 
-y_pred = energy_estimator.predict(X_test)
-energy_estimator_energy_pred = y_pred * data.loc[X_test.index, "measured epochs"]
+y_pred = pre_e.predict(X_test)
+pre_e_pred = y_pred * data.loc[X_test.index, "measured epochs"]
 
-results = pd.concat([test_run_ids, y_test, power_estimator_energy_pred, energy_estimator_energy_pred], axis=1)
-results.columns = ["run_id", "true energy (kJ)", "power estimator energy (kJ)", "energy estimator energy (kJ)"]
+results = pd.concat([test_run_ids, y_test, pre_p_pred, pre_e_pred], axis=1)
+results.columns = ["run_id", "true energy (kJ)", "PRE-P energy (kJ)", "PRE-E energy (kJ)"]
 
+with open(DATA_DIR / "analysis" / "processed" / "mean_power_draw_by_window.pkl", "rb") as f:
+    mean_power_draw = pickle.load(f)
+
+energy_estimation = build_energy_estimation(mean_power_draw, 10).query("`window size` == 5")
 energy_estimation = energy_estimation.query("run_id in @test_run_ids")
 
 energy_estimation = results.merge(
@@ -108,8 +105,8 @@ energy_estimation = results.merge(
         [
             "run_id",
             "total energy (kJ)",
-            "estimated total energy (kJ) (online power-based)",
-            "estimated total energy (kJ) (online epoch-energy-based)",
+            "estimated total energy (kJ) (STEP-P)",
+            "estimated total energy (kJ) (STEP-E)",
             "estimated total energy (kJ) (GA)",
             "estimated total energy (kJ) (MLCO2)",
         ]
@@ -124,24 +121,24 @@ energy_estimation.to_parquet(
 )
 
 print(
-    "RMSE offline power-based estimator:",
-    root_mean_squared_error(energy_estimation["true energy (kJ)"], energy_estimation["power estimator energy (kJ)"]),
+    "RMSE PRE-P estimator:",
+    root_mean_squared_error(energy_estimation["true energy (kJ)"], energy_estimation["PRE-P energy (kJ)"]),
 )
 print(
-    "RMSE offline epoch-energy-based estimator:",
-    root_mean_squared_error(energy_estimation["true energy (kJ)"], energy_estimation["energy estimator energy (kJ)"]),
+    "RMSE PRE-E estimator:",
+    root_mean_squared_error(energy_estimation["true energy (kJ)"], energy_estimation["PRE-E energy (kJ)"]),
 )
 print(
-    "RMSE online power-based estimator:",
+    "RMSE STEP-P estimator:",
     root_mean_squared_error(
-        energy_estimation["true energy (kJ)"], energy_estimation["estimated total energy (kJ) (online power-based)"]
+        energy_estimation["true energy (kJ)"], energy_estimation["estimated total energy (kJ) (STEP-P)"]
     ),
 )
 print(
-    "RMSE online epoch-energy-based estimator:",
+    "RMSE STEP-E estimator:",
     root_mean_squared_error(
         energy_estimation["true energy (kJ)"],
-        energy_estimation["estimated total energy (kJ) (online epoch-energy-based)"],
+        energy_estimation["estimated total energy (kJ) (STEP-E)"],
     ),
 )
 print(
@@ -187,44 +184,44 @@ ax.set_xlabel("True energy (kJ)")
 ax.set_title("MLCO2 Impact method")
 
 ax = fig.add_subplot(1, 6, 3, sharey=ax)
-y = energy_estimation["estimated total energy (kJ) (online power-based)"]
+y = energy_estimation["estimated total energy (kJ) (STEP-P)"]
 ax.scatter(x, y, alpha=alpha)
 slope, intercept, r_value, _, _ = stats.linregress(x, y)
 ax.plot(x, slope * x + intercept, color="blue", label="fitted line")
 ax.plot(x, x, color="red", label="y=x")
 ax.text(0.02, 0.95, f"$R^2$: {r_value**2:.3f}", transform=ax.transAxes, fontsize=10, verticalalignment="top")
 ax.set_xlabel("True energy (kJ)")
-ax.set_title("Online power-based method")
+ax.set_title("STEP-P method")
 
 ax = fig.add_subplot(1, 6, 4, sharey=ax)
-y = energy_estimation["estimated total energy (kJ) (online epoch-energy-based)"]
+y = energy_estimation["estimated total energy (kJ) (STEP-E)"]
 ax.scatter(x, y, alpha=alpha)
 slope, intercept, r_value, _, _ = stats.linregress(x, y)
 ax.plot(x, slope * x + intercept, color="blue", label="fitted line")
 ax.plot(x, x, color="red", label="y=x")
 ax.text(0.02, 0.95, f"$R^2$: {r_value**2:.3f}", transform=ax.transAxes, fontsize=10, verticalalignment="top")
 ax.set_xlabel("True energy (kJ)")
-ax.set_title("Online epoch-energy-based method")
+ax.set_title("STEP-E method")
 
 ax = fig.add_subplot(1, 6, 5, sharey=ax)
-y = energy_estimation["power estimator energy (kJ)"]
+y = energy_estimation["PRE-P energy (kJ)"]
 ax.scatter(x, y, alpha=alpha)
 slope, intercept, r_value, _, _ = stats.linregress(x, y)
 ax.plot(x, slope * x + intercept, color="blue", label="fitted line")
 ax.plot(x, x, color="red", label="y=x")
 ax.text(0.02, 0.95, f"$R^2$: {r_value**2:.3f}", transform=ax.transAxes, fontsize=10, verticalalignment="top")
 ax.set_xlabel("True energy (kJ)")
-ax.set_title("Offline power-based method")
+ax.set_title("PRE-P method")
 
 ax = fig.add_subplot(1, 6, 6, sharey=ax)
-y = energy_estimation["energy estimator energy (kJ)"]
+y = energy_estimation["PRE-E energy (kJ)"]
 ax.scatter(x, y, alpha=alpha)
 slope, intercept, r_value, _, _ = stats.linregress(x, y)
 ax.plot(x, slope * x + intercept, color="blue", label="fitted line")
 ax.plot(x, x, color="red", label="y=x")
 ax.text(0.02, 0.95, f"$R^2$: {r_value**2:.3f}", transform=ax.transAxes, fontsize=10, verticalalignment="top")
 ax.set_xlabel("True energy (kJ)")
-ax.set_title("Offline epoch-energy-based method")
+ax.set_title("PRE-E method")
 
 for ax in fig.get_axes():
     ax.grid(False)
