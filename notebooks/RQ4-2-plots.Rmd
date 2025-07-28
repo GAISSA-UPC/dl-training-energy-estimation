@@ -40,7 +40,14 @@ options(
     ggplot2.continuous.colour = function(...) scale_colour_viridis_c(..., option = viridis_scheme)
 )
 
-font_add("CMU Serif", regular = "cmunrm.ttf") # You need the font installed
+tryCatch(
+    {
+        font_add("CMU Serif", regular = "cmunrm.ttf") # You need the font installed
+    },
+    error = function(e) {
+        font_add("CMU Serif", regular = "cmunrm.otf") # Use the .otf file if the .ttf is not available
+    }
+)
 showtext_auto()
 
 theme_set(theme_pubr(base_family = "CMU Serif") +
@@ -210,8 +217,8 @@ energy_estimation_by_epoch_start
 rmse_df <- energy_estimation_data %>%
     group_by(`window size`) %>%
     summarise(
-        rmse_method_1 = sqrt(mean((`estimated total energy (kJ) (online power-based)` - `total energy (kJ)`)^2)),
-        rmse_method_2 = sqrt(mean((`estimated total energy (kJ) (online epoch-energy-based)` - `total energy (kJ)`)^2)),
+        rmse_method_1 = sqrt(mean((`estimated total energy (kJ) (STEP-P)` - `total energy (kJ)`)^2)),
+        rmse_method_2 = sqrt(mean((`estimated total energy (kJ) (STEP-E)` - `total energy (kJ)`)^2)),
         .groups = "drop"
     )
 
@@ -235,8 +242,8 @@ rmse_window_plot
 rmse_df <- energy_estimation_by_epoch_start %>%
     group_by(`stabilizing epoch`) %>%
     summarise(
-        rmse_method_1 = sqrt(mean((`estimated energy (kJ) (online power-based)` - `total energy (kJ)`)^2)),
-        rmse_method_2 = sqrt(mean((`estimated energy (kJ) (online epoch-energy-based)` - `total energy (kJ)`)^2)),
+        rmse_method_1 = sqrt(mean((`estimated energy (kJ) (STEP-P)` - `total energy (kJ)`)^2)),
+        rmse_method_2 = sqrt(mean((`estimated energy (kJ) (STEP-E)` - `total energy (kJ)`)^2)),
         .groups = "drop"
     )
 
@@ -340,10 +347,10 @@ mlco2_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y
 
 online_power_r2 <- cor(
     energy_estimation_comparison$`true energy (kJ)`,
-    energy_estimation_comparison$`estimated total energy (kJ) (online power-based)`
+    energy_estimation_comparison$`estimated total energy (kJ) (STEP-P)`
 )^2
 online_power_r2 <- round(online_power_r2, 3)
-online_power_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `estimated total energy (kJ) (online power-based)`, yend = 2000)) +
+online_power_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `estimated total energy (kJ) (STEP-P)`, yend = 2000)) +
     geom_point(alpha = 0.5) +
     geom_abline(slope = 1, intercept = 0, color = "#E41A1C", linewidth = .8) +
     geom_smooth(method = "lm", color = "#377EB8", se = FALSE, linewidth = .8) +
@@ -357,10 +364,10 @@ online_power_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (
 
 online_epoch_energy_r2 <- cor(
     energy_estimation_comparison$`true energy (kJ)`,
-    energy_estimation_comparison$`estimated total energy (kJ) (online epoch-energy-based)`
+    energy_estimation_comparison$`estimated total energy (kJ) (STEP-E)`
 )^2
 online_epoch_energy_r2 <- round(online_epoch_energy_r2, 3)
-online_epoch_energy_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `estimated total energy (kJ) (online epoch-energy-based)`, yend = 2000)) +
+online_epoch_energy_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `estimated total energy (kJ) (STEP-E)`, yend = 2000)) +
     geom_point(alpha = 0.5) +
     geom_abline(slope = 1, intercept = 0, color = "#E41A1C", linewidth = .8) +
     geom_smooth(method = "lm", color = "#377EB8", se = FALSE, linewidth = .8) +
@@ -374,10 +381,10 @@ online_epoch_energy_plot <- ggplot(energy_estimation_comparison, aes(x = `true e
 
 offline_power_r2 <- cor(
     energy_estimation_comparison$`true energy (kJ)`,
-    energy_estimation_comparison$`power estimator energy (kJ)`
+    energy_estimation_comparison$`PRE-P energy (kJ)`
 )^2
 offline_power_r2 <- round(offline_power_r2, 3)
-offline_power_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `power estimator energy (kJ)`, yend = 2000)) +
+offline_power_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `PRE-P energy (kJ)`, yend = 2000)) +
     geom_point(alpha = 0.5) +
     geom_abline(slope = 1, intercept = 0, color = "#E41A1C", linewidth = .8) +
     geom_smooth(method = "lm", color = "#377EB8", se = FALSE, linewidth = .8) +
@@ -391,10 +398,10 @@ offline_power_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy 
 
 offline_epoch_energy_r2 <- cor(
     energy_estimation_comparison$`true energy (kJ)`,
-    energy_estimation_comparison$`energy estimator energy (kJ)`
+    energy_estimation_comparison$`PRE-E energy (kJ)`
 )^2
 offline_epoch_energy_r2 <- round(offline_epoch_energy_r2, 3)
-offline_epoch_energy_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `energy estimator energy (kJ)`, yend = 2000)) +
+offline_epoch_energy_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `PRE-E energy (kJ)`, yend = 2000)) +
     geom_point(alpha = 0.5) +
     geom_abline(slope = 1, intercept = 0, color = "#E41A1C", linewidth = .8) +
     geom_smooth(method = "lm", color = "#377EB8", se = FALSE, linewidth = .8) +
