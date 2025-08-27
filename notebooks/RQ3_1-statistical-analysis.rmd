@@ -79,7 +79,7 @@ pub_theme <- theme(
 ```
 
 ```{r create-figures-directory, include=FALSE}
-fig_dir <- "reports/figures/RQ4/"
+fig_dir <- "reports/figures/RQ3/"
 print(getwd())
 if (!dir.exists(fig_dir)) {
   dir.create(fig_dir, recursive = TRUE)

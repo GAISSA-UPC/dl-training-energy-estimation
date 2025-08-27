@@ -1,5 +1,5 @@
 ---
-title: "RQ1: What is the impact of model architecture and training environment on image classification training concerning energy consumption and GPU usage?"
+title: "RQ1.1: How do model architecture and training environment impact training energy consumption and GPU usage?"
 output:
   html_document:
     toc: true
@@ -78,7 +78,7 @@ pub_theme <- theme(
 ```
 
 ```{r create-figures-directory, include=FALSE}
-fig_dir <- "reports/figures/RQ1/"
+fig_dir <- "reports/figures/RQ1_1/"
 print(getwd())
 if (!dir.exists(fig_dir)) {
   dir.create(fig_dir, recursive = TRUE)

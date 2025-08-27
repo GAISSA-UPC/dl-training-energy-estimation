@@ -1,5 +1,5 @@
 ---
-title: "RQ3: Is there a relationship between GPU usage and energy consumption when training DL models?"
+title: "RQ1.2: Is there a relationship between GPU usage and energy consumption when training DL models?"
 author: "Santiago del Rey"
 output:
   html_document:
@@ -77,7 +77,7 @@ pub_theme <- theme(
 ```
 
 ```{r create-figures-directory, include=FALSE}
-fig_dir <- "reports/figures/RQ3/"
+fig_dir <- "reports/figures/RQ1_2/"
 print(getwd())
 if (!dir.exists(fig_dir)) {
     dir.create(fig_dir, recursive = TRUE)
