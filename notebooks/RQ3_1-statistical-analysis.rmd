@@ -1,5 +1,5 @@
 ---
-title: "RQ4: How can we accurately estimate energy consumption before training DL models for image classification?"
+title: "RQ3: Can we accurately estimate energy consumption before training DL models for image classification?"
 output:
   html_document:
     toc: true
