@@ -3,6 +3,7 @@
 required_packages <- c(
   "knitr",
   "rmarkdown",
+  "languageserver",
   "arrow",
   "tidyverse",
   "lme4",

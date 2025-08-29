@@ -1,5 +1,5 @@
 ---
-title: "RQ3: How can we accurately estimate energy consumption before training DL models for image classification?"
+title: "RQ3: Can we accurately estimate energy consumption before training DL models for image classification?"
 subtitle: "Analysis of energy consumption metrics for Inception V3 architecture"
 output:
   html_document:
