@@ -1,17 +1,41 @@
-# dl-energy-estimation
+# Replication package
 
-Replication package for the paper "Effects of model architecture and training environment on Deep Learning training energy consumption".
-
+This repository contains the source code and data used in the paper "Estimating Deep Learning energy consumption based on model architecture and training environment".
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.11505891.svg)](https://doi.org/10.5281/zenodo.11505891)
 
-## Set up the environment
+## Training data
 
-### Installing dependencies
+We do not share the Chesslive dataset. However, you can use the Caltech101 and Stanford Dogs datasets to train the Inception V3 model. To use this datasets with the rest of the models you can extend each of the models' base class located in [src/models/dl](src/models/dl/) and adding it to the [model_factory](src/models/dl/model_factory.py).
 
-#### Python dependencies
+## Collected data
 
-Before executing the code, you must first install the required dependencies.
-We use [uv](https://docs.astral.sh/uv/) to manage the dependencies. To install the dependencies, you can run the following command:
+All the data collected and produced during the study can be found in the `data.zip` file in the [Releases](https://github.com/GAISSA-UPC/dl-training-energy-estimation/releases) section.
+
+The folder is expected to be extracted at the root of the project and the metrics collected can be found inside the `data/metrics` folder. The data is organized in the following structure:
+
+```text
+.
+├── auxiliary
+├── raw
+├── interim
+└── processed
+```
+
+The `auxiliary` folder contains a the list of raw measurements that have been processed. These are used to speed up the processing of new raw data.
+The `raw` folder contains the raw measurements collected during the experiment.
+The `interim` folder contains the processed data that is used to generate the final dataset.
+The `processed` folder contains the final data used to perform the analysis.
+
+## Replicating the experiments
+
+We do not provide a Docker container for the experiments since it is not possible to collect energy measurements inside a container.
+Nevertheless, we provide all the raw data and the source code used to run the experiments.
+
+If you want to reproduce the experiments, you can use the provided scripts and configuration files.
+
+### Set up the environment
+
+To set up the environment, you need to create a virtual environment and install the required dependencies. We use [uv](https://docs.astral.sh/uv/) to manage the dependencies. To install the dependencies, you can run the following command:
 
 ```bash
 uv sync
@@ -22,32 +46,14 @@ If you want to use any other dependency manager, you can look at the [pyproject.
 ```bash
 pip install -r requirements.txt
 ```
-
-#### R dependencies
-
-To run the data analysis, you will need to install R and the required packages. You can use the `install_packages.R` script to install the required packages.
-
-To run the script, you can execute the following command:
-
-```bash
-Rscript install_packages.R
-```
-
-#### Fonts
-
-This project uses the [Computer Modern Unicode](https://ctan.org/pkg/cm-unicode) font for the plots. You can install it in Ubuntu-based systems by running the following command:
-
-```bash
-sudo apt install fonts-cmu
-```
-
 ### MLflow configuration
 
 We use [MLflow](https://mlflow.org/docs/latest/index.html) to keep track of the different experiments. By default, its usage
 is disabled. If you want to use MLflow, you need to:
+
 - Configure your own [tracking server](https://mlflow.org/docs/latest/tracking.html#tracking-server).
 
-- Activate MLflow logging in the corresponding [experiment_#.yaml](config/experiment_1.yaml) configuration file.
+- Activate MLflow logging in the corresponding [experiment\_#.yaml](config/experiment_1.yaml) configuration file.
 
 - Create a `.env` file in the project root with the following structure:
 
@@ -74,9 +80,9 @@ USE_CACHE: true
 
 The GPU memory limit must be specified in Megabytes. If you do not want to set a GPU memory limit, leave the field empty.
 
-__WARNING! The memory limit value is just an example. Do not take it as a reference.__
+**WARNING! The memory limit value is just an example. Do not take it as a reference.**
 
-## Running the experiment
+### Running the experiment
 
 Once the environment is set up, you can run the experiment by executing the following command:
 
@@ -117,32 +123,47 @@ options:
 
 The training history and the model will be saved following the same rules as the profiling script.
 
-### Training data
-
-We do not share the Chesslive dataset. However, you can use the Caltech101 and Stanford Dogs datasets to train the Inception V3 model. To use this datasets with the rest of the models you can extend each of the models' base class located in [src/models/dl](src/models/dl/) and adding it to the [model_factory](src/models/dl/model_factory.py).
-
-## Collected data
-
-All the data collected and produced during the study can be found in the `data.zip` file in the [Releases](https://github.com/GAISSA-UPC/dl-training-energy-estimation/releases) section.
-
-The folder is expected to be extracted at the root of the project and the metrics collected can be found inside the `data/metrics` folder. The data is organized in the following structure:
-
-```text
-.
-├── auxiliary
-├── raw
-├── interim
-└── processed
-```
-
-The `auxiliary` folder contains a the list of raw measurements that have been processed. These are used to speed up the processing of new raw data.
-The `raw` folder contains the raw measurements collected during the experiment.
-The `interim` folder contains the processed data that is used to generate the final dataset.
-The `processed` folder contains the final data used to perform the analysis.
-
 ## Data analysis
 
 The data analysis is done using Jupyter Notebooks and R markdown notebooks. You can find the analysis inside the [`notebooks`](notebooks) folder. All the plots generated are saved in the [`reports/figures`](reports/figures) folder.
+
+### Running the data analysis from a Docker container
+
+We provide a Docker image you can use to reproduce the data analysis. You can get it from [Docker Hub](https://hub.docker.com/repository/docker/santidr/dl-training-energy-estimation/general):
+
+```bash
+docker pull santidr/dl-training-energy-estimation:1.0
+```
+
+The image uses the `appuser` user to run the container and all the necessary files are located at `/home/appuser/workspace`. This user does not have root privileges, so you may need to adjust file permissions if you want to install additional packages.
+
+To create and start the container for the first time, you can use the following command:
+
+```bash
+docker run -it santidr/dl-training-energy-estimation:1.0
+```
+
+### Running the data analysis from source
+
+If you prefer to run the data analysis directly on your machine, you can do so by following the steps in the [Replicating the experiments](#replicating-the-experiments) section and the following additional steps.
+
+#### Install R dependencies
+
+To run the data analysis, you will need to install R and the required packages. You can use the `install_packages.R` script to install the required packages.
+
+To run the script, you can execute the following command:
+
+```bash
+Rscript install_packages.R
+```
+
+#### Install required fonts
+
+This project uses the [Computer Modern Unicode](https://ctan.org/pkg/cm-unicode) font for the plots. You can install it in Ubuntu-based systems by running the following command:
+
+```bash
+sudo apt install fonts-cmu
+```
 
 ## License
 
