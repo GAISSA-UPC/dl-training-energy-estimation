@@ -14,22 +14,29 @@ RUN apt-get update && \
     cmake git r-base \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+RUN R -e "pkgs <- c( \
+    'knitr','rmarkdown','languageserver','arrow','tidyverse', \
+    'lme4','lmerTest','betareg','gamlss','glmmTMB','DHARMa','effects','effectsize','stringi', \
+    'car','MASS','MuMIn','performance','emmeans','multcomp','multcompView','h2o','gridExtra','ggeffects', \
+    'ggplot2','ggstar','ggfortify','ggpubr','ggthemes','patchwork','showtext','Hmisc'); \
+    install.packages(pkgs, repos='https://cloud.r-project.org'); \
+    missing <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]; \
+    if (length(missing) > 0) { \
+    message('Missing packages: ', paste(missing, collapse=', ')); \
+    quit(status=1) }"
+RUN R -e "pkgs <- c('see'); \
+    install.packages(pkgs); \
+    missing <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]; \
+    if (length(missing) > 0) { \
+    message('Missing packages: ', paste(missing, collapse=', ')); \
+    quit(status=1) }"
+
 COPY internalRmdTools_0.1.0.tar.gz .
+RUN R -e "install.packages('internalRmdTools_0.1.0.tar.gz', repos = NULL, type = 'source')"
+
+COPY requirements.txt .
 RUN pip install --upgrade pip \
     && pip wheel --no-cache-dir --no-deps --wheel-dir /wheels -r requirements.txt
-RUN R -e "pkgs <- c( \
-          'knitr','rmarkdown','languageserver','arrow','tidyverse', \
-          'lme4','lmerTest','betareg','robustbetareg','gamlss','glmmTMB','DHARMa','effects','effectsize','stringi', \
-          'car','MASS','MuMIn','performance','emmeans','multcomp','multcompView','h2o','gridExtra','ggeffects', \
-          'ggplot2','ggstar','ggfortify','ggpubr','ggthemes','patchwork','showtext','Hmisc'); \
-          install.packages(pkgs, repos='https://cloud.r-project.org'); \
-          missing <- pkgs[!sapply(pkgs, requireNamespace, quietly=TRUE)]; \
-          if (length(missing) > 0) { \
-            message('Missing packages: ', paste(missing, collapse=', ')); \
-            quit(status=1) }"
-
-RUN R -e "install.packages('internalRmdTools_0.1.0.tar.gz', repos = NULL, type = 'source')"
 
 # =====================
 # Stage 2: Deploy
