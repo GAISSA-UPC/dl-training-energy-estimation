@@ -18,7 +18,6 @@ knitr::opts_knit$set(
     root.dir = "../"
 )
 library(arrow)
-library(lmtest)
 library(betareg)
 library(gamlss)
 library(DHARMa)

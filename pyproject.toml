@@ -1,7 +1,7 @@
 [project]
 name = "dl-training-energy-estimation"
 version = "0.1.0"
-description = "Replication package for the paper 'How to use model architecture and training environment to estimate the energy consumption of DL training.'"
+description = "Replication package for the paper 'Estimating Deep Learning energy consumption based on model architecture and training enviroment.'"
 authors = ["Santiago del Rey Juarez <santiago.del.rey@upc.edu>"]
 licence = "Apache-2.0"
 readme = "README.md"

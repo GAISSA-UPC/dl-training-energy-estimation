@@ -18,16 +18,12 @@ knitr::opts_knit$set(
 )
 # Load libraries
 library(arrow)
-library(lme4)
-library(lmerTest) # p-values for lmer
 library(DHARMa)
 library(performance)
 library(emmeans) # post hoc tests
-library(effectsize)
 library(ggplot2)
 library(ggpubr) # for publication-ready plots
 library(car)
-library(MASS)
 library(showtext) # for custom fonts
 library(patchwork)
 library(tidyverse)

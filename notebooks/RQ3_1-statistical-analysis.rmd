@@ -24,7 +24,6 @@ library(performance)
 library(emmeans) # post hoc tests
 library(effects)
 library(effectsize) # for effect sizes
-library(broom)
 library(car)
 library(patchwork) # for combining plots
 library(ggplot2)
