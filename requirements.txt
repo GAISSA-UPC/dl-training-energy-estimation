@@ -45,7 +45,7 @@ docstring-parser==0.16
 einops==0.8.1
 etils==1.12.2
 exceptiongroup==1.2.2 ; python_full_version < '3.11'
-executing==2.1.0
+executing==2.2.1
 fastjsonschema==2.21.0
 filelock==3.18.0
 flask==3.1.0
