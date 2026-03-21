@@ -103,13 +103,13 @@ df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-
     energy_per_image = (energy * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
     epoch_duration = training_duration / `trained epochs` * 3600, # Calculate average epoch duration in seconds
     batch_size = factor(batch_size, levels = c("32", "64", "256")),
-    input_size = factor(image_size, levels = c("(75, 75)", "(128, 128)", "(224, 224)")),
     input_size = case_match(
       image_size,
-      "(75, 75)" ~ "75×75",
-      "(128, 128)" ~ "128×128",
-      "(224, 224)" ~ "224×224"
+      "(75, 75)" ~ "75x75",
+      "(128, 128)" ~ "128x128",
+      "(224, 224)" ~ "224x224"
     ),
+    input_size = factor(input_size, levels = c("75x75", "128x128", "224x224"), ordered = TRUE),
     allocated_ram = factor(allocated_ram, levels = c("8", "16", "24", "32")),
     dataset = factor(dataset),
     dataset = case_match(
@@ -142,7 +142,7 @@ df_batch_input %>%
   get_summary_stats(energy_per_image, type = "mean_sd")
 
 df_allocated_ram_energy <- df %>%
-  filter(batch_size == "256" & input_size == "128×128" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
+  filter(batch_size == "256" & input_size == "128x128" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
   group_by(allocated_ram) %>%
   mutate(
     Q1 = quantile(energy_per_image, 0.25),
@@ -159,7 +159,7 @@ df_allocated_ram_energy %>%
   get_summary_stats(energy_per_image, type = "mean_sd")
 
 df_allocated_ram_time <- df %>%
-  filter(batch_size == "256" & input_size == "128×128" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
+  filter(batch_size == "256" & input_size == "128x128" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
   group_by(allocated_ram) %>%
   mutate(
     Q1 = quantile(epoch_duration, 0.25),
@@ -175,7 +175,7 @@ df_allocated_ram_time %>%
   get_summary_stats(epoch_duration, type = "mean_sd")
 
 df_allocated_ram_ram <- df %>%
-  filter(batch_size == "256" & input_size == "128×128" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
+  filter(batch_size == "256" & input_size == "128x128" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
   group_by(allocated_ram) %>%
   mutate(
     Q1 = quantile(used_ram, 0.25),
@@ -252,7 +252,7 @@ training_power_plot <- (training_duration_barplot | power_draw_barplot) +
 plot(training_power_plot)
 
 ggsave(
-  filename = file.path(fig_dir, "batch-and-input-size-effect-power-and-time-server.pdf"),
+  filename = file.path(fig_dir, "batch-and-input-size-effect-power-and-time.pdf"),
   plot = training_power_plot & pub_theme,
   device = cairo_pdf,
   units = "cm",
