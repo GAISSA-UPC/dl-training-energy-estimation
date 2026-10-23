@@ -145,7 +145,7 @@ gpu_vs_energy <- ggplot(df_clean_energy,
         y = "Normalized Energy (J/image)",
     ) +
     guides(
-        color = guide_legend(title = "Training environment")
+        color = guide_legend(title = element_blank())
     )
 
 gpu_vs_energy
@@ -155,7 +155,7 @@ ggsave(
     filename = file.path(fig_dir, "gpu_usage_vs_energy_consumption.pdf"),
     device = cairo_pdf,
     units = "cm",
-    width = 13.71, height = 8, dpi = 300
+    width = 10, height = 8, dpi = 300
 )
 ```
 
@@ -203,7 +203,7 @@ ggsave(
     filename = file.path(fig_dir, "gpu_usage_vs_power_draw.pdf"),
     device = cairo_pdf,
     units = "cm",
-    width = 13.71, height = 8, dpi = 300
+    width = 10, height = 8, dpi = 300
 )
 ```
 

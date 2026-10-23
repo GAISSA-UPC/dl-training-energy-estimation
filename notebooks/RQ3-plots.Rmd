@@ -292,137 +292,227 @@ ggsave(
 energy_estimation_comparison <- read_parquet("data/analysis/processed/energy-estimation-results.gzip")
 ```
 
-```{r plot-energy-estimation-comparison}
-annotation_size <- 8 / ggplot2::.pt # Convert to relative size
-ga_r2 <- cor(
-    energy_estimation_comparison$`true energy (kJ)`,
-    energy_estimation_comparison$`estimated total energy (kJ) (GA)`
-)^2
-ga_r2 <- round(ga_r2, 3)
+```{r plot-settings, echo=FALSE}
+annotation_size <- 5.5 / ggplot2::.pt
 
-ga_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `estimated total energy (kJ) (GA)`)) +
-    geom_point(alpha = 0.5) +
-    geom_abline(slope = 1, intercept = 0, color = "#E41A1C", linewidth = .8) +
-    geom_smooth(method = "lm", color = "#377EB8", se = FALSE, linewidth = .8) +
-    labs(
-        x = element_blank(),
-        y = "Predicted energy (kJ)",
-        title = "Green Algorithms"
-    ) +
-    # Add R2 value to the plot
-    annotate("text", x = 200, y = 1500, label = paste("R² =", ga_r2), color = "#377EB8", size = annotation_size)
+identity_color <- "gray70"
 
-mlco2_r2 <- cor(
-    energy_estimation_comparison$`true energy (kJ)`,
-    energy_estimation_comparison$`estimated total energy (kJ) (MLCO2)`
-)^2
-mlco2_r2 <- round(mlco2_r2, 3)
-mlco2_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `estimated total energy (kJ) (MLCO2)`)) +
-    geom_point(alpha = 0.5) +
-    geom_smooth(aes(color = "Fitted"), method = "lm", se = FALSE, linewidth = .8) +
-    geom_line(aes(y = `true energy (kJ)`, color = "Diagonal"), linewidth = .8) +
-    labs(
-        x = "True energy (kJ)",
-        y = "Predicted energy (kJ)",
-        title = "MLCO2 Calculator"
-    ) +
-    # Add R2 value to the plot
-    annotate("text", x = 200, y = 1500, label = paste("R² =", mlco2_r2), color = "#377EB8", size = annotation_size) +
-    scale_color_manual(
-        name = NULL,
-        values = c("Diagonal" = "#E41A1C", "Fitted" = "#377EB8"),
-        breaks = c("Diagonal", "Fitted"),
-        labels = c("x=y", "Fitted")
-    ) +
-    guides(
-        color = guide_legend(ncol = 1)
-    ) +
-    theme(
-        legend.position = "inside",
-        legend.justification = c("right", "bottom"),
-        legend.box.just = "left",
-        legend.margin = margin(0, 0, 0, 0),
-        legend.background = element_rect(fill = "transparent")
+baseline_color <- "black"
+step_color <- "black"
+pre_color <- "black"
+
+point_color <- "black"
+```
+
+```{r plot-functions, echo=FALSE}
+create_energy_plot <- function(
+    data,
+    true_col,
+    pred_col,
+    title,
+    method_type = c("baseline", "step", "pre"),
+    show_x = FALSE,
+    show_y = FALSE
+) {
+
+    method_type <- match.arg(method_type)
+
+    fit_linetype <- case_when(
+        method_type == "baseline" ~ "dashed",
+        method_type == "step" ~ "solid",
+        method_type == "pre" ~ "dotdash"
     )
 
-online_power_r2 <- cor(
-    energy_estimation_comparison$`true energy (kJ)`,
-    energy_estimation_comparison$`estimated total energy (kJ) (STEP-P)`
-)^2
-online_power_r2 <- round(online_power_r2, 3)
-online_power_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `estimated total energy (kJ) (STEP-P)`, yend = 2000)) +
-    geom_point(alpha = 0.5) +
-    geom_abline(slope = 1, intercept = 0, color = "#E41A1C", linewidth = .8) +
-    geom_smooth(method = "lm", color = "#377EB8", se = FALSE, linewidth = .8) +
-    labs(
-        x = "True energy (kJ)",
-        y = "Predicted energy (kJ)",
-        title = "STEP-P"
+    fit_color <- case_when(
+        method_type == "baseline" ~ baseline_color,
+        method_type == "step" ~ step_color,
+        method_type == "pre" ~ pre_color
+    )
+
+    fit_linewidth <- case_when(
+        method_type == "baseline" ~ 0.9,
+        method_type == "step" ~ 1.1,
+        method_type == "pre" ~ 1.0
+    )
+
+    point_alpha <- case_when(
+        method_type == "baseline" ~ 0.22,
+        TRUE ~ 0.30
+    )
+
+    r2 <- cor(data[[true_col]], data[[pred_col]])^2
+    r2 <- round(r2, 3)
+
+    ggplot(
+        data,
+        aes(x = .data[[true_col]], y = .data[[pred_col]])
     ) +
-    # Add R2 value to the plot
-    annotate("text", x = 200, y = 1500, label = paste("R² =", online_power_r2), color = "#377EB8", size = annotation_size)
 
-online_epoch_energy_r2 <- cor(
-    energy_estimation_comparison$`true energy (kJ)`,
-    energy_estimation_comparison$`estimated total energy (kJ) (STEP-E)`
-)^2
-online_epoch_energy_r2 <- round(online_epoch_energy_r2, 3)
-online_epoch_energy_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `estimated total energy (kJ) (STEP-E)`, yend = 2000)) +
-    geom_point(alpha = 0.5) +
-    geom_abline(slope = 1, intercept = 0, color = "#E41A1C", linewidth = .8) +
-    geom_smooth(method = "lm", color = "#377EB8", se = FALSE, linewidth = .8) +
-    labs(
-        x = "True energy (kJ)",
-        y = "Predicted energy (kJ)",
-        title = "STEP-E"
+        # points
+        geom_point(
+            alpha = point_alpha,
+            size = 1.2,
+            color = point_color
+        ) +
+
+        # ideal line
+        geom_abline(
+            slope = 1,
+            intercept = 0,
+            color = identity_color,
+            linewidth = 0.5
+        ) +
+
+        # fitted regression
+        geom_smooth(
+            method = "lm",
+            se = FALSE,
+            color = fit_color,
+            linewidth = fit_linewidth,
+            linetype = fit_linetype
+        ) +
+
+        labs(
+            title = title,
+            x = if (show_x) "True energy (kJ)" else NULL,
+            y = if (show_y) "Predicted energy (kJ)" else NULL
+        ) +
+
+        annotate(
+            "text",
+            x = 60,
+            y = 2100,
+            hjust = 0,
+            vjust = 1,
+            label = paste0(
+                "R² = ", r2
+            ),
+            size = annotation_size,
+            color = "gray30"
+        ) +
+
+        coord_cartesian(
+            xlim = c(0, 1500),
+            ylim = c(0, 2200)
+        ) +
+
+        theme_classic(base_size = 10, base_family = "CMU Serif") +
+
+        theme(
+            panel.grid = element_blank(),
+
+            plot.title = element_text(
+                face = "bold",
+                size = 9,
+                hjust = 0.5
+            ),
+
+            axis.title = element_text(size = 9),
+
+            axis.text = element_text(size = 8),
+
+            plot.margin = margin(
+                    t = 4,
+                    r = 6,
+                    b = 4,
+                    l = 6
+                ),
+
+            aspect.ratio = 0.9
+        )
+}
+```
+
+```{r plot-energy-estimation-comparison}
+ga_plot <- create_energy_plot(
+    energy_estimation_comparison,
+    "true energy (kJ)",
+    "estimated total energy (kJ) (GA)",
+    "Green Algorithms",
+    "baseline",
+    show_y = TRUE,
+)
+
+mlco2_plot <- create_energy_plot(
+    energy_estimation_comparison,
+    "true energy (kJ)",
+    "estimated total energy (kJ) (MLCO2)",
+    "MLCO2 Calculator",
+    "baseline"
+)
+
+step_p_plot <- create_energy_plot(
+    energy_estimation_comparison,
+    "true energy (kJ)",
+    "estimated total energy (kJ) (STEP-P)",
+    "STEP-P",
+    "step",
+    show_y = TRUE
+)
+
+step_e_plot <- create_energy_plot(
+    energy_estimation_comparison,
+    "true energy (kJ)",
+    "estimated total energy (kJ) (STEP-E)",
+    "STEP-E",
+    "step"
+)
+
+pre_p_plot <- create_energy_plot(
+    energy_estimation_comparison,
+    "true energy (kJ)",
+    "PRE-P energy (kJ)",
+    "PRE-P",
+    "pre",
+    show_x = TRUE,
+    show_y = TRUE
+)
+
+pre_e_plot <- create_energy_plot(
+    energy_estimation_comparison,
+    "true energy (kJ)",
+    "PRE-E energy (kJ)",
+    "PRE-E",
+    "pre",
+    show_x = TRUE
+)
+```
+
+
+```{r combine-energy-estimation-plots, echo=FALSE}
+combined_energy_estimation_plot <-
+
+    (
+        ga_plot +
+        mlco2_plot
+    ) /
+
+    (
+        step_p_plot +
+        step_e_plot
+    ) /
+
+    (
+        pre_p_plot +
+        pre_e_plot
     ) +
-    # Add R2 value to the plot
-    annotate("text", x = 200, y = 1500, label = paste("R² =", online_epoch_energy_r2), color = "#377EB8", size = annotation_size)
 
-offline_power_r2 <- cor(
-    energy_estimation_comparison$`true energy (kJ)`,
-    energy_estimation_comparison$`PRE-P energy (kJ)`
-)^2
-offline_power_r2 <- round(offline_power_r2, 3)
-offline_power_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `PRE-P energy (kJ)`, yend = 2000)) +
-    geom_point(alpha = 0.5) +
-    geom_abline(slope = 1, intercept = 0, color = "#E41A1C", linewidth = .8) +
-    geom_smooth(method = "lm", color = "#377EB8", se = FALSE, linewidth = .8) +
-    labs(
-        x = "True energy (kJ)",
-        y = "Predicted energy (kJ)",
-        title = "PRE-P"
-    ) +
-    # Add R2 value to the plot
-    annotate("text", x = 200, y = 1500, label = paste("R² =", offline_power_r2), color = "#377EB8", size = annotation_size)
+    plot_layout(
+        axes = "collect"
+    )
+```
 
-offline_epoch_energy_r2 <- cor(
-    energy_estimation_comparison$`true energy (kJ)`,
-    energy_estimation_comparison$`PRE-E energy (kJ)`
-)^2
-offline_epoch_energy_r2 <- round(offline_epoch_energy_r2, 3)
-offline_epoch_energy_plot <- ggplot(energy_estimation_comparison, aes(x = `true energy (kJ)`, y = `PRE-E energy (kJ)`, yend = 2000)) +
-    geom_point(alpha = 0.5) +
-    geom_abline(slope = 1, intercept = 0, color = "#E41A1C", linewidth = .8) +
-    geom_smooth(method = "lm", color = "#377EB8", se = FALSE, linewidth = .8) +
-    labs(
-        x = "True energy (kJ)",
-        y = "Predicted energy (kJ)",
-        title = "PRE-E"
-    ) +
-    # Add R2 value to the plot
-    annotate("text", x = 200, y = 1500, label = paste("R² =", offline_epoch_energy_r2), color = "#377EB8", size = annotation_size)
-
-combined_energy_estimation_plot <- ga_plot + mlco2_plot + online_power_plot + online_epoch_energy_plot + offline_power_plot + offline_epoch_energy_plot +
-    plot_layout(ncol = 2, nrow = 3, axes = "collect")
-
-combined_energy_estimation_plot
-
+```{r save-energy-estimation-plot, echo=FALSE}
 ggsave(
-    plot = combined_energy_estimation_plot & pub_theme,
-    filename = file.path(fig_dir, "energy-estimation-methods-evaluation.pdf"),
+    plot = combined_energy_estimation_plot,
+    filename = file.path(
+        fig_dir,
+        "energy-estimation-methods-evaluation.pdf"
+    ),
     device = cairo_pdf,
     units = "cm",
-    width = 13.1, height = 12, dpi = 300
+    width = 16,
+    height = 13,
+    dpi = 300
 )
 ```
