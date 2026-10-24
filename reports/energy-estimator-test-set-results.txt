@@ -1,3 +1,4 @@
 Best model: kernel-ridge-regression-full-energy-estimator
-RMSE for average epoch energy: 0.8432125644469224
-RMSE for final target: 61.19306981479317
+Test set: 409 runs
+Average epoch energy (kJ): {'RMSE': 0.720637178434901, 'MAE': 0.2826791151523319, 'R2': 0.9667471974231624, 'r2': 0.9669735451138199, 'bias': -0.031218342030510795}
+PRE-E energy with user-provided number of epochs (measured) (kJ): {'RMSE': 51.18497840279186, 'MAE': 20.739467369483027, 'R2': 0.9724369058600626, 'r2': 0.972545556738447, 'bias': -2.9843097791036555}

@@ -1,3 +1,4 @@
 Best model: kernel-ridge-regression-power-estimator
-RMSE for average power (W): 7.832698377505219
-RMSE for final target (kJ): 30.180705925497033
+Test set: 409 runs
+Average power (W): {'RMSE': 7.0345248318570475, 'MAE': 4.163588690787886, 'R2': 0.9868951879221151, 'r2': 0.9869876320153832, 'bias': -0.13150269566882108}
+PRE-P energy with user-provided training duration (measured) (kJ): {'RMSE': 18.167153723386438, 'MAE': 7.070458972162951, 'R2': 0.9965277043062449, 'r2': 0.996584733741838, 'bias': -0.8674796927067949}

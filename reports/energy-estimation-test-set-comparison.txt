@@ -1,0 +1,10 @@
+R2 = 1 - SSE/SST; r2 = squared Pearson correlation; bias = mean signed error (kJ)
+Test set: 366 runs with STEP estimates (window size 5, stabilizing epoch 10) out of 409 test runs
+
+           RMSE     MAE     R2     r2    bias
+GA     160.0771 63.2678 0.7237 0.8355 12.2518
+MLCO2  175.8397 98.1058 0.6666 0.8972 98.1058
+STEP-P   5.5189  4.1267 0.9997 0.9998  1.4352
+STEP-E   6.3355  3.3244 0.9996 0.9997  1.2716
+PRE-P   17.4215  6.8825 0.9967 0.9968 -0.8336
+PRE-E   50.5669 20.8301 0.9724 0.9727 -3.5652
