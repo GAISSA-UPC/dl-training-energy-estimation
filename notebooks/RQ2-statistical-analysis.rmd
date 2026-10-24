@@ -108,9 +108,11 @@ df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-
             "vgg16" ~ "VGG16"
         ),
         architecture = factor(architecture, levels = c("Mobilenet V2", "NASNet Mobile", "ResNet50", "Xception", "VGG16")),
+        # Each architecture has a single GFLOPs value, so this factor is equivalent to the architecture
         GFLOPs = factor(GFLOPs),
         training_environment = factor(training_environment, levels = c("Desktop ML Engineer", "Server")),
-        efficiency = (energy / max(energy, na.rm = TRUE)) / (f1_score / max(f1_score, na.rm = TRUE)), # Megajoule per F1-score
+        # Relative energy per relative F1-score (lower is more efficient)
+        efficiency = (energy / max(energy, na.rm = TRUE)) / (f1_score / max(f1_score, na.rm = TRUE)),
     ) %>%
     dplyr::select(energy, energy_per_image, f1_score, efficiency, GFLOPs, architecture, training_environment, `training duration (h)`)
 ```
@@ -121,7 +123,7 @@ df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-
 # Define a function to filter outliers of a given variable on an input data frame
 filter_outliers <- function(df, variable) {
     df %>%
-        group_by("GFLOPs", "training_environment") %>%
+        group_by(GFLOPs, training_environment) %>%
         mutate(
             Q1 = quantile(!!sym(variable), 0.25),
             Q3 = quantile(!!sym(variable), 0.75),
@@ -236,14 +238,14 @@ ggscatter(df_clean,
     labs(title = "Joules/Image vs. F1-score by GFLOPs and Training Environment")
 ```
 
-### Efficiency: Megajoule per F1-score
+### Efficiency: relative energy per relative F1-score (lower is better)
 ```{r f1_per_joule, fig.align="center", echo=FALSE, fig.width=10, fig.height=6}
 ggbarplot(df_clean,
     x = "GFLOPs", y = "efficiency",
     fill = "training_environment", position = position_dodge(),
     add = "mean_se", palette = "Set1"
 ) +
-    labs(title = "Efficiency (Megajoule per F1-score) by GFLOPs and Training Environment")
+    labs(title = "Relative energy per relative F1-score by GFLOPs and Training Environment")
 ```
 
 ### Visualize trade-offs between F1-score and energy consumption
@@ -321,7 +323,7 @@ hist(log(df_clean$f1_score), main = "Log")
 hist(sqrt(df_clean$f1_score), main = "Sqrt")
 hist(df_clean$f1_score^2, main = "Square")
 hist(df_clean$f1_score^3, main = "Cube")
-hist(log(df$f1_score / (1 - df$f1_score)), main = "Logit")
+hist(log(df_clean$f1_score / (1 - df_clean$f1_score)), main = "Logit")
 ```
 
 ## Statistical Analysis
@@ -374,11 +376,9 @@ pairs(post_hoc_model1, adjust = "tukey") # Post hoc pairwise comparisons
 
 ### Model 1 with beta regression
 ```{r model1_beta}
-# Transform F1 to (0,1) if any 0s or 1s
+# Transform F1 to (0,1) if any 0s or 1s (Smithson & Verkuilen, using the total sample size)
 df_clean <- df_clean %>%
-    group_by(GFLOPs) %>%
-    mutate(f1_trans = (f1_score * (n() - 1) + 0.5) / n()) %>%
-    ungroup()
+    mutate(f1_trans = (f1_score * (n() - 1) + 0.5) / n())
 
 # Original model
 model1_beta <- betareg(f1_trans ~ GFLOPs, data = df_clean)
@@ -435,10 +435,7 @@ diagnostics_df %>%
     dplyr::select(obs_id, GFLOPs, training_environment, residuals, leverage, influence, flag) %>%
     head(10)
 
-df_clean %>%
-    filter(row_number() %in% c(198, 219, 237, 202, 204, 230, 215, 214, 192, 212))
-
-ggplot(filter(diagnostics_df, GFLOPs == "ResNet50"), aes(x = obs_id, y = residuals)) +
+ggplot(filter(diagnostics_df, architecture == "ResNet50"), aes(x = obs_id, y = residuals)) +
     geom_point() +
     geom_hline(yintercept = 0, linetype = "dashed") +
     labs(title = "Residuals for ResNet50")
@@ -479,10 +476,40 @@ plot(full_model)
 
 null_model <- gamlss(f1_score ~ 1, sigma.formula = ~1, family = BE, data = df_clean)
 
+# Single-term deletion removes GFLOPs from the mean (mu) only
 drop1(full_model)
+```
 
+Comparison of the full model (GFLOPs in mu and sigma) against the null model.
+```{r model1_gamlss_vs_null}
+lrt_full_vs_null <- deviance(null_model) - deviance(full_model)
+df_full_vs_null <- full_model$df.fit - null_model$df.fit
+data.frame(
+    model = c("null", "full"),
+    df = c(null_model$df.fit, full_model$df.fit),
+    AIC = c(AIC(null_model), AIC(full_model)),
+    delta_AIC = c(AIC(null_model), AIC(full_model)) - AIC(full_model)
+)
+cat(sprintf("LRT chi2(%d) = %.2f, p = %.3g\n", df_full_vs_null, lrt_full_vs_null, pchisq(lrt_full_vs_null, df_full_vs_null, lower.tail = FALSE)))
+```
+
+Effect of the training environment. The environment-only model tests its marginal effect; adding it to the full model tests its effect given GFLOPs.
+```{r model1_gamlss_environment}
 model_env_only <- gamlss(f1_score ~ training_environment, sigma.formula = ~1, family = BE, data = df_clean)
 drop1(model_env_only)
+
+full_model_env <- gamlss(
+    f1_score ~ GFLOPs + training_environment,
+    sigma.formula = ~GFLOPs,
+    family = BE,
+    control = gamlss.control(n.cyc = 100),
+    data = df_clean
+)
+lrt_env <- deviance(full_model) - deviance(full_model_env)
+cat(sprintf(
+    "Environment given GFLOPs: LRT chi2(1) = %.2f, p = %.3g, delta AIC = %.2f\n",
+    lrt_env, pchisq(lrt_env, 1, lower.tail = FALSE), AIC(full_model_env) - AIC(full_model)
+))
 ```
 
 ```{r model1_gamlss_effects}
@@ -521,9 +548,12 @@ ggplot(pairs_df, aes(x = contrast, y = odds.ratio)) +
     theme_minimal()
 ```
 
-### Model 2: F1-score per Joule as a function of GFLOPs and training environment
+### Model 2: relative energy per relative F1-score as a function of GFLOPs and training environment
 ```{r model2}
-model2 <- lm(efficiency ~ GFLOPs * training_environment, data = df_clean)
+model2 <- lm(
+    efficiency ~ GFLOPs * training_environment,
+    data = df_clean, contrasts = list(GFLOPs = "contr.sum", training_environment = "contr.sum")
+)
 summary(model2)
 ```
 #### Model diagnostics for Model 2
@@ -537,9 +567,8 @@ testResiduals(sim_res_model2)
 check_model(model2)
 ```
 
-#### Sifgnificance of interaction effects
+#### Significance of interaction effects
 ```{r model2_interaction}
-options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
 Anova(model2, type = 3)
 ```
 
@@ -556,7 +585,7 @@ pairs(post_hoc_model2, adjust = "tukey") # Post hoc pairwise comparisons
 post_hoc_plot_model2 <- ggplot(post_hoc_results_model2, aes(x = GFLOPs, y = emmean, fill = training_environment)) +
     geom_bar(stat = "identity", position = position_dodge()) +
     geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2, position = position_dodge(0.9)) +
-    labs(title = "Post Hoc Results for Model 2", x = "GFLOPs", y = "Estimated Marginal Mean (F1-score per Joule)") +
+    labs(title = "Post Hoc Results for Model 2", x = "GFLOPs", y = "Estimated Marginal Mean (relative energy per relative F1)") +
     theme_minimal() +
     scale_fill_brewer(palette = "Set1")
 print(post_hoc_plot_model2)

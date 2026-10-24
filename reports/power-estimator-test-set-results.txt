@@ -1,3 +1,4 @@
-Best model: kernel-ridge-regression-power-estimator
-RMSE for average power (W): 7.832698377505219
-RMSE for final target (kJ): 30.180705925497033
+Best model: svm-regression-power-estimator
+Test set: 393 runs from 16 held-out configurations
+Average power (W): {'RMSE': 16.82287036241736, 'MAE': 11.535243597574464, 'R2': 0.9115136739407005, 'r2': 0.9154435005619906, 'bias': -3.41910103134804}
+Energy with measured training duration (kJ): {'RMSE': 34.071868226327545, 'MAE': 16.120211565951188, 'R2': 0.9914075598090849, 'r2': 0.9953239808728989, 'bias': 5.2034440987389745}

@@ -292,8 +292,39 @@ ggsave(
 energy_estimation_comparison <- read_parquet("data/analysis/processed/energy-estimation-results.gzip")
 ```
 
+Error metrics on the held-out test configurations. `R2` is the coefficient of determination (1 - SSE/SST), which penalizes bias; `r2` is the squared Pearson correlation, which does not; `bias` is the mean signed error (kJ).
+```{r energy-estimation-metrics}
+estimation_metrics <- function(true, pred) {
+    errors <- pred - true
+    c(
+        RMSE = sqrt(mean(errors^2)),
+        MAE = mean(abs(errors)),
+        R2 = 1 - sum(errors^2) / sum((true - mean(true))^2),
+        r2 = cor(true, pred)^2,
+        bias = mean(errors)
+    )
+}
+
+estimation_methods <- c(
+    "Green Algorithms" = "estimated total energy (kJ) (GA)",
+    "MLCO2 Calculator" = "estimated total energy (kJ) (MLCO2)",
+    "STEP-P" = "estimated total energy (kJ) (STEP-P)",
+    "STEP-E" = "estimated total energy (kJ) (STEP-E)",
+    "PRE-P" = "PRE-P energy (kJ)",
+    "PRE-E" = "PRE-E energy (kJ)",
+    "PRE-P (measured duration)" = "PRE-P energy with measured duration (kJ)",
+    "PRE-E (measured epochs)" = "PRE-E energy with measured epochs (kJ)"
+)
+t(sapply(estimation_methods, function(col) {
+    estimation_metrics(energy_estimation_comparison$`true energy (kJ)`, energy_estimation_comparison[[col]])
+}))
+```
+
 ```{r plot-settings, echo=FALSE}
 annotation_size <- 5.5 / ggplot2::.pt
+
+# Common axis range for all panels
+axis_max <- 1.05 * max(energy_estimation_comparison[c("true energy (kJ)", estimation_methods[1:6])])
 
 identity_color <- "gray70"
 
@@ -340,8 +371,7 @@ create_energy_plot <- function(
         TRUE ~ 0.30
     )
 
-    r2 <- cor(data[[true_col]], data[[pred_col]])^2
-    r2 <- round(r2, 3)
+    metrics <- estimation_metrics(data[[true_col]], data[[pred_col]])
 
     ggplot(
         data,
@@ -380,20 +410,18 @@ create_energy_plot <- function(
 
         annotate(
             "text",
-            x = 60,
-            y = 2100,
+            x = 0.04 * axis_max,
+            y = 0.96 * axis_max,
             hjust = 0,
             vjust = 1,
-            label = paste0(
-                "R² = ", r2
-            ),
+            label = sprintf("R² = %.3f\nbias = %.1f kJ", metrics[["R2"]], metrics[["bias"]]),
             size = annotation_size,
             color = "gray30"
         ) +
 
         coord_cartesian(
-            xlim = c(0, 1500),
-            ylim = c(0, 2200)
+            xlim = c(0, axis_max),
+            ylim = c(0, axis_max)
         ) +
 
         theme_classic(base_size = 10, base_family = "CMU Serif") +

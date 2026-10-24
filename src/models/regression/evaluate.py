@@ -1,231 +1,136 @@
+"""
+Compare the energy estimation methods on the test runs (held-out training configurations).
+
+PRE-P and PRE-E are evaluated a priori: the training time and the number of epochs are predicted, not measured. The
+variants that use the measured duration or number of epochs are also saved, to separate the error of the power and
+epoch-energy models from the error of predicting how long training lasts. STEP, GA and MLCO2 use measurements of the run
+(they are runtime or post hoc methods). Run the three train_*_predictor scripts first.
+"""
+
 import pickle
-import re
 
 import joblib
-from matplotlib import pyplot as plt
 import pandas as pd
-from scipy import stats
-from sklearn.discriminant_analysis import StandardScaler
-from sklearn.metrics import root_mean_squared_error
-from sklearn.model_selection import train_test_split
+from sklearn.base import clone
+from sklearn.model_selection import GroupKFold
 
-from src.data.gpu_specs import get_gpu_specs
-from src.environment import (
-    CONFIGS_DIR,
-    DATA_DIR,
-    FIGURES_DIR,
-    METRICS_DIR,
-    MODELS_DIR,
-    SEED,
-)
+from src.environment import DATA_DIR, MODELS_DIR, REPORTS_DIR
 from src.features.analysis import build_energy_estimation
-from src.features.preprocessing import (
-    HOURS_TO_SECONDS,
-    JOULES_TO_KJOULES,
-    MJOULES_TO_KJOULES,
-)
+from src.features.preprocessing import HOURS_TO_SECONDS, JOULES_TO_KJOULES
+from src.models.regression.pre_data import FEATURES, STABILIZING_EPOCH, load_pre_dataset, split_by_configuration
+from src.models.regression.utils import regression_metrics
 
-RELEVANT_FEATURES = [
-    "run_id",
-    "batch size",
-    "image size",
-    "gpu model",
-    "total ram (GB)",
-    "training size",
-    "validation size",
-    "training duration (h)",
-    "GFLOPs",
-    "measured epochs",
-    "energy (MJ)",  # Final target
-]
+WINDOW_SIZE = 5
+
+
+CV_FOLDS = 5
+TARGETS = {
+    "power": "average power (W)",
+    "full-energy": "average epoch energy (kJ)",
+    "epochs": "measured epochs",
+    "epoch-duration": "average epoch duration (s)",
+}
+
+
+def load_best_model(target_metric):
+    with open(MODELS_DIR / f"pre-{target_metric}-best.joblib", "rb") as f:
+        return joblib.load(f)
+
+
+def pre_estimates(runs, predictions):
+    """PRE energy estimates (kJ) from the predictions of each PRE model for the given runs."""
+    measured_seconds = runs["training duration (h)"] * HOURS_TO_SECONDS
+    return pd.DataFrame(
+        {
+            "run_id": runs["run_id"].values,
+            "true energy (kJ)": runs["energy (kJ)"].values,
+            "PRE-P energy (kJ)": predictions["power"] * predictions["epochs"] * predictions["epoch-duration"] * JOULES_TO_KJOULES,
+            "PRE-E energy (kJ)": predictions["full-energy"] * predictions["epochs"],
+            "PRE-P energy with measured duration (kJ)": predictions["power"] * measured_seconds.values * JOULES_TO_KJOULES,
+            "PRE-E energy with measured epochs (kJ)": predictions["full-energy"] * runs["measured epochs"].values,
+        }
+    )
+
+
+def out_of_fold_predictions(data, models):
+    """Predict every run with models refitted (same hyperparameters) on folds that exclude its configuration."""
+    predictions = {target: pd.Series(index=data.index, dtype=float) for target in models}
+    for train_index, test_index in GroupKFold(n_splits=CV_FOLDS).split(data, groups=data["configuration"]):
+        train, test = data.iloc[train_index], data.iloc[test_index]
+        for target, model in models.items():
+            fitted = clone(model).fit(train[FEATURES], train[TARGETS[target]])
+            predictions[target].iloc[test_index] = fitted.predict(test[FEATURES])
+    return {target: values.values for target, values in predictions.items()}
+
+
+def add_runtime_methods(results, step_estimates):
+    return results.merge(step_estimates, on="run_id")
+
 
 print("Loading data...")
-data = pd.read_parquet(
-    METRICS_DIR / "processed" / "clean-dl-training-energy-consumption-dataset.gzip", columns=RELEVANT_FEATURES
-)
-
-
-print("Preprocessing data...")
-# Split image size into image height and image width
-data["image height"] = data["image size"].apply(lambda x: int(re.findall(r"\d+", x)[0]))
-data["image width"] = data["image size"].apply(lambda x: int(re.findall(r"\d+", x)[1]))
-
-# Add GPU specifications specified in src.data.gpu_specs.py using the 'gpu model' feature
-groups = []
-for index, group in data.groupby("gpu model"):
-    gpu_model = group["gpu model"].iloc[0]
-
-    gpu_model = gpu_model.replace("NVIDIA GeForce ", "")
-    specs = get_gpu_specs(gpu_model)
-    # group["gpu architecture"] = specs.architecture
-    group["gpu cuda cores"] = specs.cuda_cores
-    group["gpu total memory"] = specs.memory
-    group["gpu max power"] = specs.power
-
-    groups.append(group)
-
-data = pd.concat(groups)
-
-# Standardize numerical features
-X = data.drop(columns=["run_id", "image size", "gpu model", "training duration (h)", "measured epochs", "energy (MJ)"])
-y = data["energy (MJ)"] * MJOULES_TO_KJOULES
-
-X_numerical = X.select_dtypes(include=["int64", "float64"])
-X_standardized = StandardScaler().fit_transform(X_numerical)
-X_numerical = pd.DataFrame(X_standardized, index=X_numerical.index, columns=X_numerical.columns)
-X_categorical = X.select_dtypes(include=["object"])
-X_processed = pd.get_dummies(pd.concat([X_numerical, X_categorical], axis=1))
-
-_, X_test, _, y_test = train_test_split(X_processed, y, test_size=0.30, random_state=SEED)
-test_run_ids = data.loc[X_test.index, "run_id"]
-
-with open(MODELS_DIR / "kernel-ridge-regression-power-estimator.joblib", "rb") as f:
-    pre_p = joblib.load(f)
-
-y_pred = pre_p.predict(X_test)
-pre_p_pred = y_pred * data.loc[X_test.index, "training duration (h)"] * HOURS_TO_SECONDS * JOULES_TO_KJOULES
-
-with open(MODELS_DIR / "kernel-ridge-regression-full-energy-estimator.joblib", "rb") as f:
-    pre_e = joblib.load(f)
-
-y_pred = pre_e.predict(X_test)
-pre_e_pred = y_pred * data.loc[X_test.index, "measured epochs"]
-
-results = pd.concat([test_run_ids, y_test, pre_p_pred, pre_e_pred], axis=1)
-results.columns = ["run_id", "true energy (kJ)", "PRE-P energy (kJ)", "PRE-E energy (kJ)"]
+data = load_pre_dataset()
+_, test = split_by_configuration(data)
+models = {target: load_best_model(target) for target in TARGETS}
 
 with open(DATA_DIR / "analysis" / "processed" / "mean_power_draw_by_window.pkl", "rb") as f:
     mean_power_draw = pickle.load(f)
+step_estimates = build_energy_estimation(mean_power_draw, STABILIZING_EPOCH).query("`window size` == @WINDOW_SIZE")[
+    [
+        "run_id",
+        "total energy (kJ)",
+        "estimated total energy (kJ) (STEP-P)",
+        "estimated total energy (kJ) (STEP-E)",
+        "estimated total energy (kJ) (GA)",
+        "estimated total energy (kJ) (MLCO2)",
+    ]
+]
 
-energy_estimation = build_energy_estimation(mean_power_draw, 10).query("`window size` == 5")
-energy_estimation = energy_estimation.query("run_id in @test_run_ids")
-
-energy_estimation = results.merge(
-    energy_estimation[
-        [
-            "run_id",
-            "total energy (kJ)",
-            "estimated total energy (kJ) (STEP-P)",
-            "estimated total energy (kJ) (STEP-E)",
-            "estimated total energy (kJ) (GA)",
-            "estimated total energy (kJ) (MLCO2)",
-        ]
-    ],
-    on="run_id",
-)
-
+# Held-out test configurations
+test_predictions = {target: model.predict(test[FEATURES]) for target, model in models.items()}
+energy_estimation = add_runtime_methods(pre_estimates(test, test_predictions), step_estimates)
 energy_estimation.to_parquet(
     DATA_DIR / "analysis" / "processed" / "energy-estimation-results.gzip",
     index=False,
     compression="gzip",
 )
 
-print(
-    "RMSE PRE-P estimator:",
-    root_mean_squared_error(energy_estimation["true energy (kJ)"], energy_estimation["PRE-P energy (kJ)"]),
-)
-print(
-    "RMSE PRE-E estimator:",
-    root_mean_squared_error(energy_estimation["true energy (kJ)"], energy_estimation["PRE-E energy (kJ)"]),
-)
-print(
-    "RMSE STEP-P estimator:",
-    root_mean_squared_error(
-        energy_estimation["true energy (kJ)"], energy_estimation["estimated total energy (kJ) (STEP-P)"]
-    ),
-)
-print(
-    "RMSE STEP-E estimator:",
-    root_mean_squared_error(
-        energy_estimation["true energy (kJ)"],
-        energy_estimation["estimated total energy (kJ) (STEP-E)"],
-    ),
-)
-print(
-    "RMSE GA estimator:",
-    root_mean_squared_error(
-        energy_estimation["true energy (kJ)"], energy_estimation["estimated total energy (kJ) (GA)"]
-    ),
-)
-print(
-    "RMSE MLCO2 estimator:",
-    root_mean_squared_error(
-        energy_estimation["true energy (kJ)"], energy_estimation["estimated total energy (kJ) (MLCO2)"]
-    ),
-)
+# Every configuration held out once (out-of-fold predictions)
+cv_estimation = add_runtime_methods(pre_estimates(data, out_of_fold_predictions(data, models)), step_estimates)
 
-plt.style.use([CONFIGS_DIR / "figures.mplstyle", "seaborn-v0_8-colorblind"])
-alpha = 0.5
+methods = {
+    "GA": "estimated total energy (kJ) (GA)",
+    "MLCO2": "estimated total energy (kJ) (MLCO2)",
+    "STEP-P": "estimated total energy (kJ) (STEP-P)",
+    "STEP-E": "estimated total energy (kJ) (STEP-E)",
+    "PRE-P": "PRE-P energy (kJ)",
+    "PRE-E": "PRE-E energy (kJ)",
+    "PRE-P (measured duration)": "PRE-P energy with measured duration (kJ)",
+    "PRE-E (measured epochs)": "PRE-E energy with measured epochs (kJ)",
+}
 
-fig = plt.figure(figsize=(20, 5))
 
-x = energy_estimation["true energy (kJ)"]
+def compare(estimation):
+    return pd.DataFrame(
+        {name: regression_metrics(estimation["true energy (kJ)"], estimation[column]) for name, column in methods.items()}
+    ).T
 
-ax = fig.add_subplot(1, 6, 1)
-y = energy_estimation["estimated total energy (kJ) (GA)"]
-ax.scatter(x, y, alpha=alpha)
-slope, intercept, r_value, _, _ = stats.linregress(x, y)
-ax.plot(x, slope * x + intercept, color="blue", label="fitted line")
-ax.plot(x, x, color="red", label="y=x")
-ax.text(0.02, 0.95, f"$R^2$: {r_value**2:.3f}", transform=ax.transAxes, fontsize=10, verticalalignment="top")
-ax.legend(loc="lower right")
-ax.set_xlabel("True energy (kJ)")
-ax.set_ylabel("Predicted energy (kJ)")
-ax.set_title("Green Algorithms method")
 
-ax = fig.add_subplot(1, 6, 2, sharey=ax)
-y = energy_estimation["estimated total energy (kJ) (MLCO2)"]
-ax.scatter(x, y, alpha=alpha)
-slope, intercept, r_value, _, _ = stats.linregress(x, y)
-ax.plot(x, slope * x + intercept, color="blue", label="fitted line")
-ax.plot(x, x, color="red", label="y=x")
-ax.text(0.02, 0.95, f"$R^2$: {r_value**2:.3f}", transform=ax.transAxes, fontsize=10, verticalalignment="top")
-ax.set_xlabel("True energy (kJ)")
-ax.set_title("MLCO2 Impact method")
+comparison = compare(energy_estimation)
+cv_comparison = compare(cv_estimation)
+print(comparison)
+print(cv_comparison)
 
-ax = fig.add_subplot(1, 6, 3, sharey=ax)
-y = energy_estimation["estimated total energy (kJ) (STEP-P)"]
-ax.scatter(x, y, alpha=alpha)
-slope, intercept, r_value, _, _ = stats.linregress(x, y)
-ax.plot(x, slope * x + intercept, color="blue", label="fitted line")
-ax.plot(x, x, color="red", label="y=x")
-ax.text(0.02, 0.95, f"$R^2$: {r_value**2:.3f}", transform=ax.transAxes, fontsize=10, verticalalignment="top")
-ax.set_xlabel("True energy (kJ)")
-ax.set_title("STEP-P method")
-
-ax = fig.add_subplot(1, 6, 4, sharey=ax)
-y = energy_estimation["estimated total energy (kJ) (STEP-E)"]
-ax.scatter(x, y, alpha=alpha)
-slope, intercept, r_value, _, _ = stats.linregress(x, y)
-ax.plot(x, slope * x + intercept, color="blue", label="fitted line")
-ax.plot(x, x, color="red", label="y=x")
-ax.text(0.02, 0.95, f"$R^2$: {r_value**2:.3f}", transform=ax.transAxes, fontsize=10, verticalalignment="top")
-ax.set_xlabel("True energy (kJ)")
-ax.set_title("STEP-E method")
-
-ax = fig.add_subplot(1, 6, 5, sharey=ax)
-y = energy_estimation["PRE-P energy (kJ)"]
-ax.scatter(x, y, alpha=alpha)
-slope, intercept, r_value, _, _ = stats.linregress(x, y)
-ax.plot(x, slope * x + intercept, color="blue", label="fitted line")
-ax.plot(x, x, color="red", label="y=x")
-ax.text(0.02, 0.95, f"$R^2$: {r_value**2:.3f}", transform=ax.transAxes, fontsize=10, verticalalignment="top")
-ax.set_xlabel("True energy (kJ)")
-ax.set_title("PRE-P method")
-
-ax = fig.add_subplot(1, 6, 6, sharey=ax)
-y = energy_estimation["PRE-E energy (kJ)"]
-ax.scatter(x, y, alpha=alpha)
-slope, intercept, r_value, _, _ = stats.linregress(x, y)
-ax.plot(x, slope * x + intercept, color="blue", label="fitted line")
-ax.plot(x, x, color="red", label="y=x")
-ax.text(0.02, 0.95, f"$R^2$: {r_value**2:.3f}", transform=ax.transAxes, fontsize=10, verticalalignment="top")
-ax.set_xlabel("True energy (kJ)")
-ax.set_title("PRE-E method")
-
-for ax in fig.get_axes():
-    ax.grid(False)
-
-plt.tight_layout()
-
-plt.savefig(FIGURES_DIR / "RQ4" / "energy-estimation-methods-evaluation.pdf")
+with open(REPORTS_DIR / "energy-estimation-test-set-comparison.txt", "w", encoding="utf8") as f:
+    f.write("R2 = 1 - SSE/SST; r2 = squared Pearson correlation; bias = mean signed error (kJ)\n")
+    f.write(f"Only runs with STEP estimates (window size {WINDOW_SIZE}, stabilizing epoch {STABILIZING_EPOCH}).\n\n")
+    f.write(
+        f"Held-out test set: {len(energy_estimation)} runs from {test['configuration'].nunique()} configurations "
+        f"({len(test)} runs before matching STEP estimates)\n"
+    )
+    f.write(comparison.to_string(float_format=lambda x: f"{x:.4f}"))
+    f.write(
+        f"\n\nOut-of-fold ({CV_FOLDS} folds grouped by configuration, hyperparameters from the training split): "
+        f"{len(cv_estimation)} runs from {data['configuration'].nunique()} configurations\n"
+    )
+    f.write(cv_comparison.to_string(float_format=lambda x: f"{x:.4f}"))
+    f.write("\n")

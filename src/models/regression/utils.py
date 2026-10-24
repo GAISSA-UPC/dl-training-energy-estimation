@@ -2,6 +2,7 @@ from enum import Enum
 
 import joblib
 import numpy as np
+import pandas as pd
 from scipy.stats import expon, randint
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.kernel_ridge import KernelRidge
@@ -11,7 +12,9 @@ from sklearn.metrics import (
     mean_absolute_percentage_error,
     root_mean_squared_error,
 )
-from sklearn.model_selection import KFold, RandomizedSearchCV
+from sklearn.model_selection import GroupKFold, RandomizedSearchCV
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVR
 
 from src.environment import MODELS_DIR, SEED
@@ -33,10 +36,17 @@ class Models(Enum):
     RANDOM_FOREST_REGRESSOR = "rf-regression"
 
 
+def _with_scaler(regressor):
+    """Standardize the features inside the model so that the scaler is fitted on the training folds only."""
+    return Pipeline([("scaler", StandardScaler()), ("model", regressor)])
+
+
 class ModelTrainer:
-    def __init__(self, X, y):
+    def __init__(self, X, y, groups):
         self.X = X
         self.y = y
+        # Hold out whole training configurations in each cross-validation fold
+        self.cv = list(GroupKFold(n_splits=FOLDS).split(X, y, groups))
 
         self._MODELS = {
             Models.LINEAR_REGRESSOR: self.train_LinearRegression,
@@ -48,13 +58,13 @@ class ModelTrainer:
 
     def train_SVR(self, model_name):
         print("Start hyperparameter tunning for SVR")
-        reg = SVR()
+        reg = _with_scaler(SVR())
 
         random_param_dist = {
-            "C": expon(scale=300),
-            "epsilon": expon(scale=1),
-            "gamma": expon(scale=0.01),
-            "kernel": ["rbf"],
+            "model__C": expon(scale=300),
+            "model__epsilon": expon(scale=1),
+            "model__gamma": expon(scale=0.01),
+            "model__kernel": ["rbf"],
         }
 
         random_search = RandomizedSearchCV(
@@ -63,7 +73,7 @@ class ModelTrainer:
             scoring=SCORES,
             refit="R2",
             n_iter=100,
-            cv=FOLDS,
+            cv=self.cv,
             random_state=SEED,
             n_jobs=-1,
         )
@@ -75,13 +85,11 @@ class ModelTrainer:
 
     def train_LinearRegression(self, model_name):
         print("Start training Linear Regressor")
-        splits = KFold(n_splits=FOLDS, shuffle=True, random_state=SEED)
-
         scores = {"R2": [], "MAPE": [], "RMSE": [], "MAE": []}
         model = None
         best_score = -1e10
-        for train_index, test_index in splits.split(np.zeros_like(self.y), self.y):
-            reg = LinearRegression().fit(self.X.iloc[train_index], self.y.iloc[train_index])
+        for train_index, test_index in self.cv:
+            reg = _with_scaler(LinearRegression()).fit(self.X.iloc[train_index], self.y.iloc[train_index])
             scores["R2"].append(reg.score(self.X.iloc[test_index], self.y.iloc[test_index]))
             y_true = self.y.iloc[test_index]
             y_pred = reg.predict(self.X.iloc[test_index])
@@ -114,9 +122,9 @@ class ModelTrainer:
 
     def train_RidgeRegression(self, model_name):
         print("Start hyperparameter tunning for Ridge Regression")
-        reg = Ridge()
+        reg = _with_scaler(Ridge())
         random_param_dist = {
-            "alpha": expon(scale=0.1),
+            "model__alpha": expon(scale=0.1),
         }
         random_search = RandomizedSearchCV(
             reg,
@@ -124,7 +132,7 @@ class ModelTrainer:
             scoring=SCORES,
             refit="R2",
             n_iter=100,
-            cv=FOLDS,
+            cv=self.cv,
             random_state=SEED,
             n_jobs=-1,
         )
@@ -135,11 +143,11 @@ class ModelTrainer:
 
     def train_KernelRidge(self, model_name):
         print("Start hyperparameter tunning for Kernel Ridge Regression")
-        reg = KernelRidge()
+        reg = _with_scaler(KernelRidge())
         random_param_dist = {
-            "alpha": expon(scale=0.01),
-            "gamma": expon(scale=0.01),
-            "kernel": ["rbf"],
+            "model__alpha": expon(scale=0.01),
+            "model__gamma": expon(scale=0.01),
+            "model__kernel": ["rbf"],
         }
         random_search = RandomizedSearchCV(
             reg,
@@ -147,7 +155,7 @@ class ModelTrainer:
             scoring=SCORES,
             refit="R2",
             n_iter=100,
-            cv=FOLDS,
+            cv=self.cv,
             random_state=SEED,
             n_jobs=-1,
             error_score="raise",
@@ -159,10 +167,10 @@ class ModelTrainer:
 
     def train_RandomForest(self, model_name):
         print("Start hyperparameter tunning for Random Forest Regression")
-        reg = RandomForestRegressor()
+        reg = _with_scaler(RandomForestRegressor())
         random_param_dist = {
-            "n_estimators": randint(100, 1000),
-            "max_depth": randint(10, 100),
+            "model__n_estimators": randint(100, 1000),
+            "model__max_depth": randint(10, 100),
         }
 
         random_search = RandomizedSearchCV(
@@ -171,7 +179,7 @@ class ModelTrainer:
             scoring=SCORES,
             refit="R2",
             n_iter=100,
-            cv=FOLDS,
+            cv=self.cv,
             random_state=SEED,
             n_jobs=-1,
         )
@@ -181,10 +189,9 @@ class ModelTrainer:
         return _process_cv_results(random_search, model_name)
 
     def run_training(self, target_metric: str, models: list[Models]):
-        if target_metric not in ["full-energy", "stable-energy", "power"]:
-            raise ValueError(
-                f"Target metric {target_metric} is not valid. Please use 'full-energy', 'stable-energy' or 'power'"
-            )
+        valid_targets = ["full-energy", "stable-energy", "power", "epochs", "epoch-duration"]
+        if target_metric not in valid_targets:
+            raise ValueError(f"Target metric {target_metric} is not valid. Please use one of {valid_targets}")
 
         print(f"Training data shape: {self.X.shape}")
         models_results = {"model_name": [], "model": [], "r2": [], "mape": [], "rmse": [], "mae": []}
@@ -195,6 +202,48 @@ class ModelTrainer:
                 models_results[key].append(value)
 
         return models_results
+
+
+def train_target(train: pd.DataFrame, features: list, target_column: str, target_metric: str, models: list[Models]):
+    """
+    Tune and cross-validate each model for one PRE target and keep the one with the lowest cross-validated RMSE.
+
+    The best model is also saved as ``pre-{target_metric}-best.joblib`` so that the evaluation can load it.
+
+    Returns
+    -------
+    results_df : `pd.DataFrame`
+        Cross-validation scores of each model.
+    best_model : estimator
+        The model with the lowest cross-validated RMSE, refitted on the whole training set.
+    """
+    results = ModelTrainer(train[features], train[target_column], train["configuration"]).run_training(
+        target_metric, models
+    )
+    results_df = pd.DataFrame.from_dict({key: values for key, values in results.items() if key != "model"})
+    best_model = results["model"][results_df["rmse"].idxmin()]
+    with open(MODELS_DIR / f"pre-{target_metric}-best.joblib", "wb") as f:
+        joblib.dump(best_model, f)
+    return results_df, best_model
+
+
+def regression_metrics(y_true, y_pred) -> dict:
+    """
+    Error metrics for a set of predictions.
+
+    ``R2`` is the coefficient of determination, 1 - SSE/SST, which penalizes bias; ``r2`` is the squared Pearson
+    correlation between predictions and true values, which does not. ``bias`` is the mean signed error.
+    """
+    y_true = np.asarray(y_true, dtype=float)
+    y_pred = np.asarray(y_pred, dtype=float)
+    errors = y_pred - y_true
+    return {
+        "RMSE": float(np.sqrt(np.mean(errors**2))),
+        "MAE": float(np.mean(np.abs(errors))),
+        "R2": float(1 - np.sum(errors**2) / np.sum((y_true - y_true.mean()) ** 2)),
+        "r2": float(np.corrcoef(y_true, y_pred)[0, 1] ** 2),
+        "bias": float(np.mean(errors)),
+    }
 
 
 def report(results, n_top=3):

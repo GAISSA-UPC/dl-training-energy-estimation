@@ -124,6 +124,9 @@ filter_outliers <- function(df, variable) {
 filtered_energy_data <- filter_outliers(df, "energy")
 # Outlier filtering for gpu_usage (by group)
 filtered_gpu_data <- filter_outliers(df, "gpu_usage")
+
+# Set sum-to-zero contrasts in each model call so that Type III tests do not depend on global options
+sum_contrasts <- list(architecture = "contr.sum", training_environment = "contr.sum")
 ```
 
 ---
@@ -187,14 +190,16 @@ label_text <- paste0("↓ ", formatC(relative_improvement, format = "f", digits 
 make_energy_plot <- function(annotation_font_size = 16) {
   annottation_size <- annotation_font_size / ggplot2::.pt # Convert to relative size
   ggplot(filtered_energy_data, aes(x = architecture, y = energy, fill = training_environment)) +
-    geom_bar(stat = "summary", fun = "mean", position = position_dodge()) +
+    geom_bar(stat = "summary", fun = "median", position = position_dodge()) +
+    # Error bars show the interquartile range
     geom_errorbar(
       stat = "summary",
-      fun.data = mean_sdl,
+      fun.data = median_hilow,
+      fun.args = list(conf.int = 0.5),
       position = position_dodge(width = 0.9),
       width = 0.2
     ) +
-    # Add a horizontal line for the maximum mean energy consumption
+    # Add a horizontal line for the maximum median energy consumption
     geom_hline(
       yintercept = max_median_energy,
       linetype = "dashed", color = "red"
@@ -244,7 +249,7 @@ ggsave(make_energy_plot(9) + pub_theme,
 
 Fit a linear model to the energy consumption data, including an interaction term between architecture and training environment.
 ```{r}
-model_energy <- lm(energy ~ architecture * training_environment, data = filtered_energy_data)
+model_energy <- lm(energy ~ architecture * training_environment, data = filtered_energy_data, contrasts = sum_contrasts)
 summary(model_energy)
 ```
 
@@ -252,57 +257,24 @@ summary(model_energy)
 
 ```{r energy-dharma-diagnostics}
 sim_res_energy <- simulateResiduals(fittedModel = model_energy)
-res_df <- data.frame(
-  scaled_residuals = sim_res_energy$scaledResiduals,
-  predicted = sim_res_energy$fittedPredictedResponse,
-  observed = sim_res_energy$observedResponse
-)
-
 testResiduals(sim_res_energy)
-```
-
-### Remove the outliers detected in the residuals and refit the model
-The results of the outlier test indicate that there are some outliers in the residuals. We will remove these outliers based on the scaled residuals, which are the standardized residuals from the model.
-We will filter out any observations with scaled residuals outside the 2.5%–97.5% quantiles.
-```{r dharma-outliers}
-# Remove outliers based on the simulated residuals
-scaled_res <- sim_res_energy$scaledResiduals
-
-# Identify outliers: residuals outside the 2.5%–97.5% quantiles
-lower <- quantile(scaled_res, 0.025)
-upper <- quantile(scaled_res, 0.975)
-
-# Mark which residuals are outside the acceptable range
-outlier_index <- which(scaled_res < lower | scaled_res > upper)
-
-filtered_energy_data <- filtered_energy_data[-outlier_index, ]
-
-# Show the outliers
-filtered_energy_data[outlier_index, ]
-```
-
-Refit the model after removing outliers
-```{r energy-refit-model}
-model_energy <- lm(energy ~ architecture * training_environment, data = filtered_energy_data)
-summary(model_energy)
-```
-
-Now the diagnostics show that the model is well-fitted without significant outliers and the residuals are normally distributed.
-```{r refitted-model-diagnostics}
-sim_res_energy <- simulateResiduals(fittedModel = model_energy)
-
-testResiduals(sim_res_energy)
-
 check_model(model_energy)
 ```
 
-## Significance testing
-```{r}
-options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
-Anova(model_energy, type = 3)
+The residual variance differs across cells, so we complement the classical tests with heteroscedasticity-consistent (HC3) tests.
+```{r energy-homoscedasticity}
+leveneTest(energy ~ architecture * training_environment, data = filtered_energy_data)
+```
 
-effectsize::eta_squared(model_energy, partial = FALSE)  # for eta-squared
-effectsize::eta_squared(model_energy, partial = TRUE)  # for partial eta-squared
+## Significance testing
+Type III tests with sum-to-zero contrasts (set in the model call, so the warning `effectsize` gives for Type III tables does not apply). Effect sizes are computed from the Type III sums of squares.
+```{r energy-anova}
+anova_energy <- Anova(model_energy, type = 3)
+anova_energy
+Anova(model_energy, type = 3, white.adjust = "hc3") # robust to unequal variances
+
+effectsize::eta_squared(anova_energy, partial = FALSE, verbose = FALSE) # eta-squared
+effectsize::eta_squared(anova_energy, partial = TRUE, verbose = FALSE) # partial eta-squared
 ```
 
 ## Post hoc tests
@@ -371,6 +343,24 @@ ggplot() +
   theme_pubr() +
   theme(text = element_text(size = 14))
 ```
+
+## Sensitivity analysis: residual-based trimming
+Earlier versions of this analysis removed the observations whose DHARMa scaled residuals fell outside the 2.5%–97.5% quantiles. This rule always removes about 5% of the data, so we only report it as a sensitivity check.
+```{r energy-trimming-sensitivity}
+trim_by_scaled_residuals <- function(model, data) {
+  scaled_res <- simulateResiduals(fittedModel = model)$scaledResiduals
+  outlier_index <- which(scaled_res < quantile(scaled_res, 0.025) | scaled_res > quantile(scaled_res, 0.975))
+  list(removed = data[outlier_index, ], kept = if (length(outlier_index) > 0) data[-outlier_index, ] else data)
+}
+
+trimmed_energy <- trim_by_scaled_residuals(model_energy, filtered_energy_data)
+trimmed_energy$removed %>% count(architecture, training_environment)
+
+model_energy_trimmed <- lm(energy ~ architecture * training_environment, data = trimmed_energy$kept, contrasts = sum_contrasts)
+anova_energy_trimmed <- Anova(model_energy_trimmed, type = 3)
+anova_energy_trimmed
+effectsize::eta_squared(anova_energy_trimmed, partial = FALSE, verbose = FALSE)
+```
 ---
 
 # GPU Usage Analysis
@@ -405,9 +395,11 @@ hist(100 - filtered_gpu_data$gpu_usage, main = "Reflected")
 ```{r, gpu-usage-barplot}
 gpu_barplot <- ggplot(filtered_gpu_data, aes(x = architecture, y = gpu_usage, fill = training_environment)) +
   geom_bar(stat = "summary", fun = "median", position = position_dodge()) +
+  # Error bars show the interquartile range
   geom_errorbar(
     stat = "summary",
-    fun.data = mean_sdl,
+    fun.data = median_hilow,
+    fun.args = list(conf.int = 0.5),
     position = position_dodge(width = 0.9),
     width = 0.2
   ) +
@@ -431,7 +423,7 @@ ggsave(gpu_barplot + pub_theme,
 max_val <- 100
 filtered_gpu_data$gpu_usage_reflected <- sqrt(max_val - filtered_gpu_data$gpu_usage + 1)
 
-model_gpu <- lm(gpu_usage_reflected ~ architecture * training_environment, data = filtered_gpu_data)
+model_gpu <- lm(gpu_usage_reflected ~ architecture * training_environment, data = filtered_gpu_data, contrasts = sum_contrasts)
 summary(model_gpu)
 ```
 
@@ -440,45 +432,30 @@ summary(model_gpu)
 ```{r gpu-lm-dharma-diagnostics}
 sim_res_gpu <- simulateResiduals(fittedModel = model_gpu)
 testResiduals(sim_res_gpu)
-```
-
-### Remove the outliers detected in the residuals and refit the model
-The results of the outlier test indicate that there are some outliers in the residuals. We will remove these outliers based on the scaled residuals, which are the standardized residuals from the model.
-We will filter out any observations with scaled residuals outside the 2.5%–97.5% quantiles.
-```{r gpu-dharma-outliers-removal}
-# Remove outliers based on the simulated residuals
-scaled_res_gpu <- sim_res_gpu$scaledResiduals
-# Identify outliers: residuals outside the 2.5%–97.5% quantiles
-lower_gpu <- quantile(scaled_res_gpu, 0.025)
-upper_gpu <- quantile(scaled_res_gpu, 0.975)
-# Mark which residuals are outside the acceptable range
-outlier_index_gpu <- which(scaled_res_gpu < lower_gpu | scaled_res_gpu > upper_gpu)
-filtered_gpu_data <- filtered_gpu_data[-outlier_index_gpu, ]
-# Show the outliers
-filtered_gpu_data[outlier_index_gpu, ]
-```
-
-Refit the model after removing outliers
-```{r gpu-refit-model}
-model_gpu <- lm(gpu_usage_reflected ~ architecture * training_environment, data = filtered_gpu_data)
-summary(model_gpu)
-```
-
-Now the diagnostics show that the model is well-fitted without significant outliers and the residuals are normally distributed.
-```{r gpu-refitted-diagnostics}
-sim_res_gpu <- simulateResiduals(fittedModel = model_gpu)
-testResiduals(sim_res_gpu)
-
 check_model(model_gpu)
+leveneTest(gpu_usage_reflected ~ architecture * training_environment, data = filtered_gpu_data)
 ```
 
 ## Significance testing
+Type III tests with sum-to-zero contrasts (set in the model call, so the warning `effectsize` gives for Type III tables does not apply). Effect sizes are computed from the Type III sums of squares.
 ```{r gpu-anova}
-options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
-Anova(model_gpu, type = 3)
+anova_gpu <- Anova(model_gpu, type = 3)
+anova_gpu
+Anova(model_gpu, type = 3, white.adjust = "hc3") # robust to unequal variances
 
-effectsize::eta_squared(model_gpu, partial = FALSE)  # for eta-squared
-effectsize::eta_squared(model_gpu, partial = TRUE)  # for partial eta-squared
+effectsize::eta_squared(anova_gpu, partial = FALSE, verbose = FALSE) # eta-squared
+effectsize::eta_squared(anova_gpu, partial = TRUE, verbose = FALSE) # partial eta-squared
+```
+
+## Sensitivity analysis: residual-based trimming
+```{r gpu-trimming-sensitivity}
+trimmed_gpu <- trim_by_scaled_residuals(model_gpu, filtered_gpu_data)
+trimmed_gpu$removed %>% count(architecture, training_environment)
+
+model_gpu_trimmed <- lm(gpu_usage_reflected ~ architecture * training_environment, data = trimmed_gpu$kept, contrasts = sum_contrasts)
+anova_gpu_trimmed <- Anova(model_gpu_trimmed, type = 3)
+anova_gpu_trimmed
+effectsize::eta_squared(anova_gpu_trimmed, partial = FALSE, verbose = FALSE)
 ```
 
 ## Post hoc tests

@@ -96,7 +96,7 @@ df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-
     ) %>%
     filter(architecture != "inception_v3" & training_environment != "Desktop Normal User") %>%
     mutate(
-        energy_per_image = (energy * 1000000) / `total seen images`, # Convert MJ to KJ and normalize by total seen images
+        energy_per_image = (energy * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
         gpu_usage = gpu_usage / 100, # Convert percentage to proportion
         architecture = case_match(
             architecture,
@@ -109,7 +109,7 @@ df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-
         architecture = factor(architecture, levels = c("Mobilenet V2", "NASNet Mobile", "ResNet50", "Xception", "VGG16")),
         training_environment = factor(training_environment, levels = c("Desktop ML Engineer", "Server")),
     ) %>%
-    select(training_environment, architecture, gpu_usage, energy_per_image, power_draw, tdp)
+    dplyr::select(run_id, training_environment, architecture, gpu_usage, energy_per_image, power_draw, tdp)
 
 filter_outliers <- function(df, variable) {
     df %>%
@@ -125,11 +125,24 @@ filter_outliers <- function(df, variable) {
         dplyr::select(-Q1, -Q3, -IQR, -is_outlier)
 }
 
-df_clean_energy <- filter_outliers(df, "gpu_usage") %>%
-    filter_outliers("energy_per_image")
+# Detect outliers independently for each variable and keep the runs that are not outliers in any of them
+keep_non_outliers <- function(df, variables) {
+    kept <- df
+    for (variable in variables) {
+        kept <- semi_join(kept, filter_outliers(df, variable), by = "run_id")
+    }
+    kept
+}
 
-df_clean_power <- filter_outliers(df, "gpu_usage") %>%
-    filter_outliers("power_draw")
+# Centre GPU usage so that the factor main effects are evaluated at the average GPU usage instead of at 0%
+df_clean_energy <- keep_non_outliers(df, c("gpu_usage", "energy_per_image")) %>%
+    mutate(gpu_usage_c = gpu_usage - mean(gpu_usage))
+
+df_clean_power <- keep_non_outliers(df, c("gpu_usage", "power_draw")) %>%
+    mutate(gpu_usage_c = gpu_usage - mean(gpu_usage))
+
+# Set sum-to-zero contrasts in each model call so that Type III tests do not depend on global options
+sum_contrasts <- list(architecture = "contr.sum", training_environment = "contr.sum")
 ```
 
 ## Plot GPU usage vs energy consumption
@@ -249,15 +262,25 @@ check_model(model_global)
 
 #### Interaction effects
 ```{r statistical-analysis}
-# Perform linear regression
-model_linear <- lm(energy_per_image ~ gpu_usage * training_environment * architecture, data = df_clean_energy)
+# Perform linear regression with centred GPU usage and sum-to-zero contrasts
+model_linear <- lm(
+    energy_per_image ~ gpu_usage_c * training_environment * architecture,
+    data = df_clean_energy, contrasts = sum_contrasts
+)
 summary(model_linear)
-# ANOVA to check for significance
-options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
-Anova(model_linear, type = 3)
+# Type III ANOVA, classical and robust to unequal variances
+anova_linear <- Anova(model_linear, type = 3)
+anova_linear
+Anova(model_linear, type = 3, white.adjust = "hc3")
 
-eta_squared(model_linear, partial = FALSE)      # Eta² (total variance explained)
-eta_squared(model_linear, partial = TRUE)       # Partial Eta² (variance explained after controlling for others)
+eta_squared(anova_linear, partial = FALSE, verbose = FALSE) # Eta² (total variance explained)
+eta_squared(anova_linear, partial = TRUE, verbose = FALSE) # Partial Eta² (variance explained after controlling for others)
+```
+
+Because GPU usage interacts with both factors, we report its slope (J/image per unit of GPU usage) in each architecture and environment.
+```{r gpu-usage-slopes}
+gpu_slopes <- emtrends(model_linear, ~ training_environment * architecture, var = "gpu_usage_c")
+summary(gpu_slopes, infer = TRUE)
 ```
 
 ##### Model diagnostics
@@ -275,7 +298,6 @@ testResiduals(sim)
 ```{r mixed-effects-model}
 model_mixed <- lmer(energy_per_image ~ gpu_usage + (1 | architecture) + (1 | training_environment), data = df_clean_energy)
 summary(model_mixed)
-options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
 Anova(model_mixed, type = 3)
 ```
 
@@ -298,8 +320,11 @@ compare_performance(model_global, model_linear, model_mixed, rank = TRUE)
 
 #### Post-hoc tests
 ```{r post-hoc-tests}
-# Estimate marginal means with GPU usage at 50% (0.5)
-emms <- emmeans(model_linear, ~ gpu_usage * training_environment * architecture, at = list(gpu_usage = 0.9))
+# Estimate marginal means with GPU usage at 90% (0.9), expressed on the centred scale
+emms <- emmeans(
+    model_linear, ~ gpu_usage_c * training_environment * architecture,
+    at = list(gpu_usage_c = 0.9 - mean(df_clean_energy$gpu_usage))
+)
 emms
 pairwise_com <- pairs(emms)
 pairwise_com
@@ -313,13 +338,13 @@ compact_letter_display <- cld(emms, Letters = letters, adjust = "sidak")
 print(compact_letter_display)
 
 ggplot(compact_letter_display, aes(
-    x = interaction(gpu_usage, training_environment, architecture),
+    x = interaction(training_environment, architecture),
     y = emmean
 )) +
     geom_col(fill = "skyblue") +
     geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL), width = 0.2) +
     geom_text(aes(label = .group), vjust = -0.5, color = "red") +
-    labs(x = "Condition", y = "Estimated Marginal Mean (GPU Usage)") +
+    labs(x = "Condition", y = "Estimated Marginal Mean (J/image) at 90% GPU Usage") +
     theme_pubr() +
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
@@ -345,16 +370,20 @@ testResiduals(sim_linear_power_draw)
 
 #### Interaction effects for power draw
 ```{r model-power-draw}
-model_linear_power_draw <- lm(power_draw ~ gpu_usage * training_environment * architecture, data = df_clean_power)
+model_linear_power_draw <- lm(
+    power_draw ~ gpu_usage_c * training_environment * architecture,
+    data = df_clean_power, contrasts = sum_contrasts
+)
 summary(model_linear_power_draw)
 ```
 
 ```{r anova-power-draw}
-options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
-Anova(model_linear_power_draw, type = 3)
+anova_power_draw <- Anova(model_linear_power_draw, type = 3)
+anova_power_draw
+Anova(model_linear_power_draw, type = 3, white.adjust = "hc3")
 
-eta_squared(model_linear, partial = FALSE)      # Eta² (total variance explained)
-eta_squared(model_linear, partial = TRUE)       # Partial Eta² (variance explained after controlling for others)
+eta_squared(anova_power_draw, partial = FALSE, verbose = FALSE) # Eta² (total variance explained)
+eta_squared(anova_power_draw, partial = TRUE, verbose = FALSE) # Partial Eta² (variance explained after controlling for others)
 ```
 
 ##### Model diagnostics for power draw
@@ -374,12 +403,14 @@ check_model(model_linear_power_draw)
 
 #### Mixed effects model for power draw
 ```{r mixed-effects-model-power-draw}
-model_mixed_power_draw <- lmer(power_draw ~ gpu_usage * training_environment * architecture + (1 | tdp), data = df_clean_power)
+model_mixed_power_draw <- lmer(
+    power_draw ~ gpu_usage_c * training_environment * architecture + (1 | tdp),
+    data = df_clean_power, contrasts = sum_contrasts
+)
 summary(model_mixed_power_draw)
 ```
 
 ```{r anova-mixed-power-draw}
-options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
 Anova(model_mixed_power_draw, type = 3)
 ```
 ##### Model diagnostics for mixed effects model power draw
@@ -404,7 +435,7 @@ compare_performance(model_global_power_draw, model_linear_power_draw, model_mixe
 
 #### Post-hoc tests for power draw
 ```{r post-hoc-tests-power-draw}
-emms_power_draw <- emmeans(model_linear_power_draw, ~ gpu_usage * training_environment * architecture)
+emms_power_draw <- emmeans(model_linear_power_draw, ~ gpu_usage_c * training_environment * architecture)
 emms_power_draw
 
 pairs(emms_power_draw, adjust = "tukey")
