@@ -97,28 +97,33 @@ df <- read_parquet("data/metrics/processed/clean-dl-training-energy-consumption-
     image_size = `image size`,
     allocated_ram = `total ram (GB)`,
     training_environment = `training environment`,
+    start_time = `start time`,
   ) %>%
   filter(architecture == "inception_v3") %>%
   mutate(
     energy_per_image = (energy * 1000000) / `total seen images`, # Convert MJ to J and normalize by total seen images
     epoch_duration = training_duration / `trained epochs` * 3600, # Calculate average epoch duration in seconds
     batch_size = factor(batch_size, levels = c("32", "64", "256")),
-    input_size = factor(image_size, levels = c("(75, 75)", "(128, 128)", "(224, 224)")),
     input_size = case_match(
       image_size,
-      "(75, 75)" ~ "75×75",
-      "(128, 128)" ~ "128×128",
-      "(224, 224)" ~ "224×224"
+      "(75, 75)" ~ "75x75",
+      "(128, 128)" ~ "128x128",
+      "(224, 224)" ~ "224x224"
     ),
+    input_size = factor(input_size, levels = c("75x75", "128x128", "224x224"), ordered = TRUE),
     allocated_ram = factor(allocated_ram, levels = c("8", "16", "24", "32")),
-    dataset = factor(dataset),
+    # Convert to a factor after renaming; case_match() returns a character vector
     dataset = case_match(
       dataset,
       "stanford_dogs" ~ "Stanford Dogs",
       "caltech101" ~ "Caltech 101"
-    )
+    ),
+    dataset = factor(dataset, levels = c("Caltech 101", "Stanford Dogs"))
   ) %>%
-  select(energy_per_image, power_draw, epoch_duration, used_ram, batch_size, input_size, dataset, training_environment, allocated_ram)
+  select(energy_per_image, power_draw, epoch_duration, used_ram, batch_size, input_size, dataset, training_environment, allocated_ram, start_time)
+
+# Set sum-to-zero contrasts in each model call so that tests do not depend on global options
+factor_contrasts <- list(batch_size = "contr.sum", input_size = "contr.sum", dataset = "contr.sum")
 ```
 
 ## Visualize the data
@@ -142,7 +147,7 @@ df_batch_input %>%
   get_summary_stats(energy_per_image, type = "mean_sd")
 
 df_allocated_ram_energy <- df %>%
-  filter(batch_size == "256" & input_size == "128×128" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
+  filter(batch_size == "256" & input_size == "128x128" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
   group_by(allocated_ram) %>%
   mutate(
     Q1 = quantile(energy_per_image, 0.25),
@@ -159,7 +164,7 @@ df_allocated_ram_energy %>%
   get_summary_stats(energy_per_image, type = "mean_sd")
 
 df_allocated_ram_time <- df %>%
-  filter(batch_size == "256" & input_size == "128×128" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
+  filter(batch_size == "256" & input_size == "128x128" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
   group_by(allocated_ram) %>%
   mutate(
     Q1 = quantile(epoch_duration, 0.25),
@@ -175,7 +180,7 @@ df_allocated_ram_time %>%
   get_summary_stats(epoch_duration, type = "mean_sd")
 
 df_allocated_ram_ram <- df %>%
-  filter(batch_size == "256" & input_size == "128×128" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
+  filter(batch_size == "256" & input_size == "128x128" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
   group_by(allocated_ram) %>%
   mutate(
     Q1 = quantile(used_ram, 0.25),
@@ -252,7 +257,7 @@ training_power_plot <- (training_duration_barplot | power_draw_barplot) +
 plot(training_power_plot)
 
 ggsave(
-  filename = file.path(fig_dir, "batch-and-input-size-effect-power-and-time-server.pdf"),
+  filename = file.path(fig_dir, "batch-and-input-size-effect-power-and-time.pdf"),
   plot = training_power_plot & pub_theme,
   device = cairo_pdf,
   units = "cm",
@@ -332,7 +337,7 @@ ggsave(
 ## Statistical analysis of the effects of batch size, input size, and dataset on energy consumption
 ### Linear model with dataset as a fixed effect
 ```{r linear-model}
-model_lm <- lm(energy_per_image ~ batch_size * input_size * dataset, data = df_batch_input)
+model_lm <- lm(energy_per_image ~ batch_size * input_size * dataset, data = df_batch_input, contrasts = factor_contrasts)
 summary(model_lm)
 ```
 
@@ -351,12 +356,12 @@ check_model(model_lm)
 model_lmm <- lmer(
   energy_per_image ~ batch_size * input_size + (1 | dataset),
   data = df_batch_input,
+  contrasts = factor_contrasts[c("batch_size", "input_size")]
 )
 summary(model_lmm)
 ```
 
 ```{r anova-mixed-model}
-options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
 Anova(model_lmm, type = 3) # Type III ANOVA for mixed models
 ```
 
@@ -371,14 +376,14 @@ testResiduals(sim_res_lmm)
 model_glm <- glm(
   energy_per_image ~ batch_size * input_size * dataset,
   data = df_batch_input,
-  family = Gamma(link = "log")
+  family = Gamma(link = "log"),
+  contrasts = factor_contrasts
 )
 summary(model_glm)
 ```
 
 ```{r anova-glm}
-options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
-Anova(model_glm) # Type III ANOVA for generalized linear models
+Anova(model_glm, type = 3, test.statistic = "Wald") # Type III Wald chi-square tests (sum-to-zero contrasts)
 ```
 
 #### Check assumptions of the generalized linear model
@@ -397,13 +402,17 @@ compare_performance(model_lm, model_lmm, model_glm, rank = TRUE)
 ```
 
 ### Significance testing and effect size
+Type III Wald chi-square tests with sum-to-zero contrasts, consistent with the Type III tests used for the architecture and environment models. The three-way interaction is significant, so each main effect is the effect averaged equally over the levels of the other factors. We use Wald tests because Type III likelihood-ratio (and F) tests refit models without a main effect but with its interactions, and those refits do not converge here. Type II likelihood-ratio tests, which do not depend on the contrasts, are reported as a check.
+
+The statistics are very large because the Gamma dispersion is tiny (the coefficient of variation within each configuration is below 1%), not because observations are replicated: each row is one training run.
 ```{r, anova-batch-input}
-options(contrasts = c("contr.sum", "contr.poly")) # sum-to-zero contrasts for Type III
-anova_results <- Anova(model_glm) # Type III ANOVA for linear models
+anova_results <- Anova(model_glm, type = 3, test.statistic = "Wald") # Type III, Wald chi-square tests
 anova_results
+Anova(model_glm, type = 2) # Check: Type II, likelihood-ratio chi-square tests
+cat("Dispersion:", summary(model_glm)$dispersion, " residual df:", df.residual(model_glm), "\n")
 
 non_significant_terms <- anova_results %>%
-  filter(`Pr(>Chisq)` > 0.05)
+  filter(rownames(.) != "(Intercept)" & `Pr(>Chisq)` > 0.05)
 ```
 
 ```{r, non-significant-batch-input, eval=!(plyr::empty(non_significant_terms))}
@@ -411,9 +420,18 @@ knitr::asis_output("### Non-significant terms")
 non_significant_terms
 ```
 
-```{r, eta-squared-batch-input}
-eta_squared(model_glm, partial = FALSE) # Calculate eta squared for effect sizes
-eta_squared(model_glm, partial = TRUE) # Partial eta squared for each term
+Because the model uses a log link, effects are multiplicative. We report them as ratios of mean energy per image (fold changes) with 95% confidence intervals.
+```{r, fold-changes-batch-input}
+emm_input <- emmeans(model_glm, ~ input_size | batch_size * dataset, type = "response")
+input_ratios <- contrast(emm_input, method = "revpairwise", type = "response")
+confint(input_ratios, adjust = "none")
+
+emm_batch <- emmeans(model_glm, ~ batch_size | input_size * dataset, type = "response")
+batch_ratios <- contrast(emm_batch, method = "revpairwise", type = "response")
+confint(batch_ratios, adjust = "none")
+
+# Marginal fold change from 75x75 to 224x224, averaged over batch sizes and datasets
+confint(contrast(emmeans(model_glm, ~input_size, type = "response"), method = "revpairwise", type = "response"), adjust = "none")
 ```
 
 ### Post hoc tests
@@ -438,11 +456,6 @@ knitr::asis_output("### Non-significant pairwise comparisons")
 non_significant_pairs
 ```
 
-#### Calculate energy hedges' g for the estimated marginal means
-```{r, energy-hedges-g}
-eff_size(emm_lm, by="dataset", sigma = sigma(model_glm), edf = df.residual(model_glm), type = "hedges")
-```
-
 #### Plot the estimated marginal means.
 ```{r eem-plot, fig.height=8, fig.width=15}
 emm_df <- as.data.frame(emm_lm) %>%
@@ -463,6 +476,14 @@ ggplot(emm_df, aes(x = batch_size, y = response, group = input_size, color = inp
 
 
 ## Statistical analysis of the effects of allocated RAM on energy consumption
+Each allocated-RAM level was run in a separate session, and the 16 GB runs come from the batch- and input-size experiment on the Server. The RAM level is therefore confounded with the session (date), and the differences below may partly reflect session effects. The effect is also non-monotonic, so we compare all levels pairwise rather than describing a trend.
+```{r allocated-ram-sessions}
+df %>%
+  filter(batch_size == "256" & input_size == "128x128" & dataset == "Stanford Dogs" & training_environment == "Server") %>%
+  group_by(allocated_ram) %>%
+  summarise(runs = n(), first_run = min(start_time), last_run = max(start_time))
+```
+
 ### Linear model with allocated RAM as a fixed effect
 ```{r linear-model-allocated-ram}
 model_lm_ram <- lm(energy_per_image ~ allocated_ram, data = df_allocated_ram_energy)
@@ -480,8 +501,12 @@ check_model(model_lm_ram)
 
 #### Significance testing and effect size
 ```{r anova-linear-model-allocated-ram}
-Anova(model_lm_ram) # Type I ANOVA for linear models
+Anova(model_lm_ram) # One-way ANOVA (with a single factor, Types I-III coincide)
 eta_squared(model_lm_ram, partial = FALSE) # Calculate eta squared for effect sizes
+# Variances differ between RAM levels, so we also report Welch's ANOVA and Games-Howell comparisons
+leveneTest(energy_per_image ~ allocated_ram, data = df_allocated_ram_energy)
+oneway.test(energy_per_image ~ allocated_ram, data = df_allocated_ram_energy, var.equal = FALSE)
+rstatix::games_howell_test(df_allocated_ram_energy, energy_per_image ~ allocated_ram)
 ```
 
 #### Post hoc tests for allocated RAM
@@ -516,8 +541,11 @@ check_model(model_lm_duration)
 
 #### Significance testing and effect size
 ```{r anova-linear-model-training-duration}
-Anova(model_lm_duration) # Type I ANOVA for linear models
+Anova(model_lm_duration) # One-way ANOVA (with a single factor, Types I-III coincide)
 eta_squared(model_lm_duration, partial = FALSE) # Calculate eta squared for effect sizes
+leveneTest(epoch_duration ~ allocated_ram, data = df_allocated_ram_time)
+oneway.test(epoch_duration ~ allocated_ram, data = df_allocated_ram_time, var.equal = FALSE)
+rstatix::games_howell_test(df_allocated_ram_time, epoch_duration ~ allocated_ram)
 ```
 
 #### Post hoc tests for allocated RAM on training duration
@@ -529,7 +557,7 @@ pairs(emm_duration, adjust = "tukey")
 plot(emm_duration, comparisons = TRUE) +
   labs(
     title = "Estimated Marginal Means of Training Duration by Allocated RAM",
-    x = "Predicted Training Duration (minutes)",
+    x = "Predicted Epoch Duration (seconds)",
     y = "Allocated RAM (GB)",
   )
 ```
@@ -553,8 +581,11 @@ check_model(model_lm_ram_used)
 
 #### Significance testing and effect size
 ```{r anova-linear-model-average-ram-used}
-Anova(model_lm_ram_used) # Type I ANOVA for linear models
+Anova(model_lm_ram_used) # One-way ANOVA (with a single factor, Types I-III coincide)
 eta_squared(model_lm_ram_used, partial = FALSE) # Calculate eta squared for effect sizes
+leveneTest(used_ram ~ allocated_ram, data = df_allocated_ram_ram)
+oneway.test(used_ram ~ allocated_ram, data = df_allocated_ram_ram, var.equal = FALSE)
+rstatix::games_howell_test(df_allocated_ram_ram, used_ram ~ allocated_ram)
 ```
 
 #### Post hoc tests for allocated RAM on average RAM used

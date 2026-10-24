@@ -45,6 +45,22 @@ SECONDS_TO_HOURS = 1 / 3.6e3
 
 USED_MB_TO_WATTS = 3.75e-4
 
+# Columns of the analysis dataset that come from the MLflow runs
+MLFLOW_COLUMNS = [
+    "run_id",
+    "training size",
+    "validation size",
+    "batch size",
+    "image size",
+    "GFLOPs",
+    "accuracy",
+    "AUC",
+    "split number",
+    "precision",
+    "recall",
+    "f1-score",
+]
+
 
 def measure2float(value: str):
     """
@@ -450,7 +466,9 @@ def get_duration(series):
     return (tmp.iloc[-1] - tmp.iloc[0]) / np.timedelta64(1, "h")
 
 
-def build_analysis_dataset(metrics_file: Union[Path, None] = None, save_to_file: bool = False):
+def build_analysis_dataset(
+    metrics_file: Union[Path, None] = None, save_to_file: bool = False, mlflow_cache: Union[Path, None] = None
+):
     """
     Build the analysis dataset from the data in `input_folder`. If `output_folder` is specified it will save the dataset
     as a ``gzip`` file.
@@ -461,6 +479,9 @@ def build_analysis_dataset(metrics_file: Union[Path, None] = None, save_to_file:
         The file with the collected metrics. If `None`, the default saving location will be used.
     save_to_file : bool, default False
         Whether to save the resulting dataset to a parquet file or not.
+    mlflow_cache : Path, default None
+        A previously built analysis dataset from which to take the MLflow metrics instead of querying the MLflow
+        tracking server. Use it to rebuild the dataset without access to the server.
 
     Returns
     -------
@@ -481,8 +502,12 @@ def build_analysis_dataset(metrics_file: Union[Path, None] = None, save_to_file:
         )
     ]
     output_folder = METRICS_DIR / "processed"
-    mlflow_df = _get_mlflow_metrics(setting_variables, grouping_features, output_folder)
-    analysis_df = df_grouped.join(mlflow_df, how="inner")
+    if mlflow_cache is None:
+        mlflow_df = _get_mlflow_metrics(setting_variables, grouping_features, output_folder)
+        analysis_df = df_grouped.join(mlflow_df, how="inner")
+    else:
+        mlflow_df = pd.read_parquet(mlflow_cache, columns=MLFLOW_COLUMNS).set_index("run_id")
+        analysis_df = df_grouped.join(mlflow_df, on="run_id", how="inner")
     analysis_df = analysis_df.reset_index()
     analysis_df.rename(columns={"train_environment": "training environment"}, inplace=True)
     analysis_df.loc[
@@ -686,7 +711,8 @@ def _aggregate_metrics(df: pd.DataFrame, grouping_features: List):
         total_ram=("total_memory", "first"),
     )
 
-    df_grouped.measured_epochs = df_grouped.measured_epochs.fillna(0).astype(int)
+    # Epochs are labelled from 0, so the number of measured epochs is the last label plus one
+    df_grouped.measured_epochs = (df_grouped.measured_epochs + 1).fillna(0).astype(int)
     df["elapsed_time"] = df["elapsed_time"].dt.total_seconds()
     df_grouped["trained epochs"] = df.groupby(grouping_features).apply(
         lambda d: get_epoch_ends(d.iloc[0]).shape[0] if not d.epoch.isna().any() else 0
@@ -744,7 +770,8 @@ def _get_oom_metrics():
             parse_dates=["start time"],
             dtype={"architecture": str, "dataset": str, "image size": str, "batch size": int, "return code": int},
         )
-        df.loc[:, "image size"] = df["image size"].apply(lambda x: f"({x},{x})")
+        # Match the "(height, width)" format of the MLflow image size parameter
+        df.loc[:, "image size"] = df["image size"].apply(lambda x: f"({x}, {x})")
         oom_flags.append(df)
 
     return pd.concat(oom_flags)

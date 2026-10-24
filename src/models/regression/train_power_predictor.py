@@ -1,141 +1,76 @@
-import re
+"""
+Train the PRE-P models, which predict the average power (GPU and RAM) of a training run from features known before
+training. The runs are split at random into a training and a test set (see `pre_data`).
+"""
 
 from loguru import logger
 import matplotlib.pyplot as plt
 import pandas as pd
-from scipy import stats
 from sklearn.inspection import permutation_importance
-from sklearn.metrics import root_mean_squared_error
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 
-from src.data.gpu_specs import get_gpu_specs
-from src.environment import FIGURES_DIR, METRICS_DIR, REPORTS_DIR, SEED
-from src.features.preprocessing import (
-    HOURS_TO_SECONDS,
-    JOULES_TO_KJOULES,
-    MJOULES_TO_JOULES,
-)
-from src.models.regression.utils import Models, ModelTrainer
+from src.environment import FIGURES_DIR, REPORTS_DIR
+from src.features.preprocessing import HOURS_TO_SECONDS, JOULES_TO_KJOULES
+from src.models.regression.pre_data import FEATURES, load_pre_dataset, split_runs
+from src.models.regression.utils import Models, regression_metrics, train_target
 
-RELEVANT_FEATURES = [
-    "batch size",
-    "image size",
-    "gpu model",
-    "total ram (GB)",
-    "training size",
-    "validation size",
-    "training duration (h)",
-    "GFLOPs",
-    "average gpu power (W)",  # Target
-    "energy (MJ)",  # Final target
-]
+MODELS = [Models.LINEAR_REGRESSOR, Models.RIDGE_REGRESSOR, Models.KERNEL_RIDGE_REGRESSOR, Models.SVM_REGRESSOR]
 
 logger.info("Loading data...")
-data = pd.read_parquet(
-    METRICS_DIR / "processed" / "clean-dl-training-energy-consumption-dataset.gzip", columns=RELEVANT_FEATURES
-)
+data = load_pre_dataset()
+train, test = split_runs(data)
+logger.info(f"{len(train)} training runs, {len(test)} test runs")
 
-logger.info("Preprocessing data...")
-# Split image size into image height and image width
-data["image height"] = data["image size"].apply(lambda x: int(re.findall(r"\d+", x)[0]))
-data["image width"] = data["image size"].apply(lambda x: int(re.findall(r"\d+", x)[1]))
-
-# Add GPU specifications specified in src.data.gpu_specs.py using the 'gpu model' feature
-groups = []
-for index, group in data.groupby("gpu model"):
-    gpu_model = group["gpu model"].iloc[0]
-
-    gpu_model = gpu_model.replace("NVIDIA GeForce ", "")
-    specs = get_gpu_specs(gpu_model)
-    # group["gpu architecture"] = specs.architecture
-    group["gpu cuda cores"] = specs.cuda_cores
-    group["gpu total memory"] = specs.memory
-    group["gpu max power"] = specs.power
-
-    groups.append(group)
-
-data = pd.concat(groups)
-
-# Standardize numerical features
-X = data.drop(columns=["average gpu power (W)", "image size", "gpu model", "training duration (h)", "energy (MJ)"])
-y = data["average gpu power (W)"]
-gold_standard = data["energy (MJ)"] * MJOULES_TO_JOULES
-
-X_numerical = X.select_dtypes(include=["int64", "float64"])
-X_categorical = X.select_dtypes(include=["object"])
-X_standardized = StandardScaler().fit_transform(X_numerical)
-X_numerical = pd.DataFrame(X_standardized, index=X_numerical.index, columns=X_numerical.columns)
-# X_encoded = TargetEncoder(target_type="continuous").fit_transform(X_categorical, y)
-# X_categorical = pd.DataFrame(X_encoded, index=X_categorical.index, columns=X_categorical.columns)
-# X_encoded = pd.concat([X_numerical, X_categorical], axis=1)
-X = pd.concat([X_numerical, X_categorical], axis=1)
-X_encoded = pd.get_dummies(X)
-
-X_train, X_test, y_train, y_test = train_test_split(X_encoded, y, test_size=0.30, random_state=SEED)
-
-results = ModelTrainer(X_train, y_train).run_training(
-    "power", [Models.LINEAR_REGRESSOR, Models.RIDGE_REGRESSOR, Models.KERNEL_RIDGE_REGRESSOR, Models.SVM_REGRESSOR]
-)
-results_df = pd.DataFrame.from_dict({key: values for key, values in results.items() if key != "model"})
+results_df, best_model = train_target(train, FEATURES, "average power (W)", "power", MODELS)
 results_df.to_latex(REPORTS_DIR / "power-estimators-comparison.tex", encoding="utf8")
 print(results_df)
 print("")
 
-models = results["model"]
+y_test = test["average power (W)"]
+y_pred = best_model.predict(test[FEATURES])
+power_metrics = regression_metrics(y_test, y_pred)
 
-best_model_idx = results_df["rmse"].idxmin()
-best_model = models[best_model_idx]
+# PRE-P energy: predicted power times the training time provided by the user. The measured duration stands in for an
+# accurate user estimate; see evaluate.py for the comparison with the other methods.
+energy_pred = y_pred * test["training duration (h)"] * HOURS_TO_SECONDS * JOULES_TO_KJOULES
+energy_metrics = regression_metrics(test["energy (kJ)"], energy_pred)
 
-result = permutation_importance(best_model, X_test, y_test, n_repeats=10, random_state=42, n_jobs=2)
+best_model_name = results_df.loc[results_df["rmse"].idxmin(), "model_name"]
+print(f"Best model: {best_model_name}")
+print(f"Average power (W): {power_metrics}")
+print(f"PRE-P energy with user-provided duration (kJ): {energy_metrics}")
 
-forest_importances = pd.Series(result.importances_mean, index=X_test.columns)
-
+result = permutation_importance(best_model, test[FEATURES], y_test, n_repeats=10, random_state=42, n_jobs=2)
+importances = pd.Series(result.importances_mean, index=FEATURES)
 fig, ax = plt.subplots(figsize=(10, 5))
-forest_importances.plot.barh(xerr=result.importances_std, ax=ax)
+importances.plot.barh(xerr=result.importances_std, ax=ax)
 ax.set_title("Feature importances using permutation on full model")
 ax.set_ylabel("Mean accuracy decrease")
 fig.tight_layout()
 plt.savefig(FIGURES_DIR / "average-power-estimator-feature-importance-permutation.png")
 
-y_pred = best_model.predict(X_test)
-energy_pred = y_pred * data.loc[X_test.index]["training duration (h)"] * HOURS_TO_SECONDS
-average_power_rmse = root_mean_squared_error(y_test, y_pred)
-final_target_rmse = root_mean_squared_error(gold_standard.loc[y_test.index], energy_pred) * JOULES_TO_KJOULES
-print(f"Best model: {results_df.loc[best_model_idx, 'model_name']}")
-print(f"RMSE for average power (W): {average_power_rmse}")
-print(f"RMSE for final target (kJ): {final_target_rmse}")
+for x, y, metrics, unit, title, file_name in [
+    (y_test, y_pred, power_metrics, "average power (W)", "Average power", "average-power-predictions-vs-true-values"),
+    (
+        test["energy (kJ)"],
+        energy_pred,
+        energy_metrics,
+        "energy (kJ)",
+        "PRE-P energy",
+        "method-1-energy-predictions-vs-true-values",
+    ),
+]:
+    _, ax = plt.subplots(figsize=(10, 10))
+    ax.scatter(x, y)
+    ax.plot(x, x, color="red", label="y=x")
+    ax.text(0.02, 0.95, f"$R^2$: {metrics['R2']:.3f}", transform=ax.transAxes, fontsize=10, verticalalignment="top")
+    ax.set_xlabel(f"True {unit}")
+    ax.set_ylabel(f"Predicted {unit}")
+    ax.set_title(f"{title} predictions vs true values")
+    ax.legend(loc="upper left")
+    plt.savefig(FIGURES_DIR / f"{file_name}.png")
 
-# Plot predictions vs true values
-_, ax = plt.subplots(figsize=(10, 10))
-x = y_test
-y = y_pred
-ax.scatter(x, y)
-slope, intercept, r_value, p_value, std_err = stats.linregress(x, y)
-ax.plot(x, x, color="red", label="y=x")
-ax.text(0.02, 0.95, f"$R^2$: {r_value**2:.3f}", transform=ax.transAxes, fontsize=10, verticalalignment="top")
-ax.set_xlabel("True average power (W)")
-ax.set_ylabel("Predicted average power (W)")
-ax.set_title("Average power predictions vs true values")
-ax.legend(loc="upper left")
-plt.savefig(FIGURES_DIR / "average-power-predictions-vs-true-values.png")
-
-_, ax = plt.subplots(figsize=(10, 10))
-x = gold_standard.loc[y_test.index] * JOULES_TO_KJOULES
-y = energy_pred * JOULES_TO_KJOULES
-ax.scatter(x, y)
-slope, intercept, r_value, p_value, std_err = stats.linregress(x, y)
-ax.plot(x, x, color="red", label="y=x")
-ax.text(0.02, 0.95, f"$R^2$: {r_value**2:.3f}", transform=ax.transAxes, fontsize=10, verticalalignment="top")
-ax.set_xlabel("True energy (kJ)")
-ax.set_ylabel("Predicted energy (kJ)")
-ax.set_title("Energy predictions vs true values")
-ax.legend(loc="upper left")
-plt.savefig(FIGURES_DIR / "method-1-energy-predictions-vs-true-values.png")
-
-
-# Save results with test set
 with open(REPORTS_DIR / "power-estimator-test-set-results.txt", "w", encoding="utf8") as f:
-    f.write(f"Best model: {results_df.loc[best_model_idx, 'model_name']}\n")
-    f.write(f"RMSE for average power (W): {average_power_rmse}\n")
-    f.write(f"RMSE for final target (kJ): {final_target_rmse}\n")
+    f.write(f"Best model: {best_model_name}\n")
+    f.write(f"Test set: {len(test)} runs\n")
+    f.write(f"Average power (W): {power_metrics}\n")
+    f.write(f"PRE-P energy with user-provided training duration (measured) (kJ): {energy_metrics}\n")
