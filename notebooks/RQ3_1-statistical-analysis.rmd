@@ -383,7 +383,7 @@ summary(model_glm)
 ```
 
 ```{r anova-glm}
-Anova(model_glm, type = 2) # Type II analysis of deviance (likelihood-ratio tests)
+Anova(model_glm, type = 3, test.statistic = "Wald") # Type III Wald chi-square tests (sum-to-zero contrasts)
 ```
 
 #### Check assumptions of the generalized linear model
@@ -402,15 +402,17 @@ compare_performance(model_lm, model_lmm, model_glm, rank = TRUE)
 ```
 
 ### Significance testing and effect size
-Type II analysis of deviance. The likelihood-ratio statistics are very large because the Gamma dispersion is tiny (the coefficient of variation within each configuration is below 1%), not because observations are replicated: each row is one training run. The F tests use the estimated dispersion and are the recommended tests for a Gamma model.
+Type III Wald chi-square tests with sum-to-zero contrasts, consistent with the Type III tests used for the architecture and environment models. The three-way interaction is significant, so each main effect is the effect averaged equally over the levels of the other factors. We use Wald tests because Type III likelihood-ratio (and F) tests refit models without a main effect but with its interactions, and those refits do not converge here. Type II likelihood-ratio tests, which do not depend on the contrasts, are reported as a check.
+
+The statistics are very large because the Gamma dispersion is tiny (the coefficient of variation within each configuration is below 1%), not because observations are replicated: each row is one training run.
 ```{r, anova-batch-input}
-anova_results <- Anova(model_glm, type = 2) # Type II, likelihood-ratio chi-square tests
+anova_results <- Anova(model_glm, type = 3, test.statistic = "Wald") # Type III, Wald chi-square tests
 anova_results
-Anova(model_glm, type = 2, test.statistic = "F") # Type II, F tests with estimated dispersion
+Anova(model_glm, type = 2) # Check: Type II, likelihood-ratio chi-square tests
 cat("Dispersion:", summary(model_glm)$dispersion, " residual df:", df.residual(model_glm), "\n")
 
 non_significant_terms <- anova_results %>%
-  filter(`Pr(>Chisq)` > 0.05)
+  filter(rownames(.) != "(Intercept)" & `Pr(>Chisq)` > 0.05)
 ```
 
 ```{r, non-significant-batch-input, eval=!(plyr::empty(non_significant_terms))}
