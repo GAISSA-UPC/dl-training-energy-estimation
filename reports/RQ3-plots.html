@@ -2948,10 +2948,10 @@ rmse_epoch_plot</code></pre>
 </div>
 <div id="plot-energy-estimation-comparison-by-estimation-method" class="section level2">
 <h2>Plot energy estimation comparison by estimation method</h2>
-<p>Error metrics on the held-out test configurations. <code>R2</code> is
-the coefficient of determination (1 - SSE/SST), which penalizes bias;
-<code>r2</code> is the squared Pearson correlation, which does not;
-<code>bias</code> is the mean signed error (kJ).</p>
+<p>Error metrics on the test runs. <code>R2</code> is the coefficient of
+determination (1 - SSE/SST), which penalizes bias; <code>r2</code> is
+the squared Pearson correlation, which does not; <code>bias</code> is
+the mean signed error (kJ).</p>
 <pre class="r"><code>estimation_metrics &lt;- function(true, pred) {
     errors &lt;- pred - true
     c(
@@ -2969,22 +2969,18 @@ estimation_methods &lt;- c(
     &quot;STEP-P&quot; = &quot;estimated total energy (kJ) (STEP-P)&quot;,
     &quot;STEP-E&quot; = &quot;estimated total energy (kJ) (STEP-E)&quot;,
     &quot;PRE-P&quot; = &quot;PRE-P energy (kJ)&quot;,
-    &quot;PRE-E&quot; = &quot;PRE-E energy (kJ)&quot;,
-    &quot;PRE-P (measured duration)&quot; = &quot;PRE-P energy with measured duration (kJ)&quot;,
-    &quot;PRE-E (measured epochs)&quot; = &quot;PRE-E energy with measured epochs (kJ)&quot;
+    &quot;PRE-E&quot; = &quot;PRE-E energy (kJ)&quot;
 )
 t(sapply(estimation_methods, function(col) {
     estimation_metrics(energy_estimation_comparison$`true energy (kJ)`, energy_estimation_comparison[[col]])
 }))</code></pre>
-<pre><code>##                                 RMSE        MAE        R2        r2        bias
-## Green Algorithms           50.888683  32.119307 0.9799788 0.9842126   0.3427229
-## MLCO2 Calculator           55.880063  41.754931 0.9758586 0.9922385  41.7549312
-## STEP-P                      5.816279   4.343795 0.9997385 0.9998907   0.9833673
-## STEP-E                      9.019559   3.680454 0.9993710 0.9993789  -0.7640407
-## PRE-P                     228.886938 110.673642 0.5949675 0.8663359  73.4019420
-## PRE-E                     272.478978 160.936825 0.4259975 0.5783262 -51.4677719
-## PRE-P (measured duration)  33.546469  15.422088 0.9912996 0.9955704   5.5057628
-## PRE-E (measured epochs)   257.346072 158.432580 0.4879848 0.6779320 -53.9245409</code></pre>
+<pre><code>##                        RMSE       MAE        R2        r2       bias
+## Green Algorithms 160.077136 63.267831 0.7236747 0.8354727 12.2518048
+## MLCO2 Calculator 175.839668 98.105790 0.6665769 0.8971858 98.1057904
+## STEP-P             5.518931  4.126701 0.9996715 0.9997890  1.4352255
+## STEP-E             6.335520  3.324395 0.9995672 0.9996763  1.2716286
+## PRE-P             17.421485  6.882506 0.9967271 0.9967524 -0.8335511
+## PRE-E             50.566886 20.830059 0.9724263 0.9726523 -3.5651651</code></pre>
 <pre class="r"><code>ga_plot &lt;- create_energy_plot(
     energy_estimation_comparison,
     &quot;true energy (kJ)&quot;,

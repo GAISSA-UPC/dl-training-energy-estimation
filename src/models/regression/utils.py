@@ -12,7 +12,7 @@ from sklearn.metrics import (
     mean_absolute_percentage_error,
     root_mean_squared_error,
 )
-from sklearn.model_selection import GroupKFold, RandomizedSearchCV
+from sklearn.model_selection import KFold, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVR
@@ -42,11 +42,9 @@ def _with_scaler(regressor):
 
 
 class ModelTrainer:
-    def __init__(self, X, y, groups):
+    def __init__(self, X, y):
         self.X = X
         self.y = y
-        # Hold out whole training configurations in each cross-validation fold
-        self.cv = list(GroupKFold(n_splits=FOLDS).split(X, y, groups))
 
         self._MODELS = {
             Models.LINEAR_REGRESSOR: self.train_LinearRegression,
@@ -73,7 +71,7 @@ class ModelTrainer:
             scoring=SCORES,
             refit="R2",
             n_iter=100,
-            cv=self.cv,
+            cv=FOLDS,
             random_state=SEED,
             n_jobs=-1,
         )
@@ -88,7 +86,8 @@ class ModelTrainer:
         scores = {"R2": [], "MAPE": [], "RMSE": [], "MAE": []}
         model = None
         best_score = -1e10
-        for train_index, test_index in self.cv:
+        splits = KFold(n_splits=FOLDS, shuffle=True, random_state=SEED)
+        for train_index, test_index in splits.split(np.zeros_like(self.y), self.y):
             reg = _with_scaler(LinearRegression()).fit(self.X.iloc[train_index], self.y.iloc[train_index])
             scores["R2"].append(reg.score(self.X.iloc[test_index], self.y.iloc[test_index]))
             y_true = self.y.iloc[test_index]
@@ -132,7 +131,7 @@ class ModelTrainer:
             scoring=SCORES,
             refit="R2",
             n_iter=100,
-            cv=self.cv,
+            cv=FOLDS,
             random_state=SEED,
             n_jobs=-1,
         )
@@ -155,7 +154,7 @@ class ModelTrainer:
             scoring=SCORES,
             refit="R2",
             n_iter=100,
-            cv=self.cv,
+            cv=FOLDS,
             random_state=SEED,
             n_jobs=-1,
             error_score="raise",
@@ -179,7 +178,7 @@ class ModelTrainer:
             scoring=SCORES,
             refit="R2",
             n_iter=100,
-            cv=self.cv,
+            cv=FOLDS,
             random_state=SEED,
             n_jobs=-1,
         )
@@ -189,7 +188,7 @@ class ModelTrainer:
         return _process_cv_results(random_search, model_name)
 
     def run_training(self, target_metric: str, models: list[Models]):
-        valid_targets = ["full-energy", "stable-energy", "power", "epochs", "epoch-duration"]
+        valid_targets = ["full-energy", "stable-energy", "power"]
         if target_metric not in valid_targets:
             raise ValueError(f"Target metric {target_metric} is not valid. Please use one of {valid_targets}")
 
@@ -217,9 +216,7 @@ def train_target(train: pd.DataFrame, features: list, target_column: str, target
     best_model : estimator
         The model with the lowest cross-validated RMSE, refitted on the whole training set.
     """
-    results = ModelTrainer(train[features], train[target_column], train["configuration"]).run_training(
-        target_metric, models
-    )
+    results = ModelTrainer(train[features], train[target_column]).run_training(target_metric, models)
     results_df = pd.DataFrame.from_dict({key: values for key, values in results.items() if key != "model"})
     best_model = results["model"][results_df["rmse"].idxmin()]
     with open(MODELS_DIR / f"pre-{target_metric}-best.joblib", "wb") as f:

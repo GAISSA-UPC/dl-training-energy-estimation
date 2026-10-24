@@ -1,7 +1,7 @@
 """
 Train the PRE-E models, which predict the average energy per epoch (GPU and RAM) of a training run from features known
-before training. Two variants are trained: one on all epochs and one on the stable epochs only. The test set holds out
-whole training configurations (see `pre_data`).
+before training. Two variants are trained: one on all epochs and one on the stable epochs only. The runs are split at
+random into a training and a test set (see `pre_data`).
 """
 
 from loguru import logger
@@ -10,15 +10,15 @@ import pandas as pd
 from sklearn.inspection import permutation_importance
 
 from src.environment import FIGURES_DIR, REPORTS_DIR
-from src.models.regression.pre_data import FEATURES, load_pre_dataset, split_by_configuration
+from src.models.regression.pre_data import FEATURES, load_pre_dataset, split_runs
 from src.models.regression.utils import Models, regression_metrics, train_target
 
 MODELS = [Models.LINEAR_REGRESSOR, Models.RIDGE_REGRESSOR, Models.KERNEL_RIDGE_REGRESSOR, Models.SVM_REGRESSOR]
 
 logger.info("Loading data...")
 data = load_pre_dataset()
-train, test = split_by_configuration(data)
-logger.info(f"{len(train)} training runs, {len(test)} test runs, {test['configuration'].nunique()} test configurations")
+train, test = split_runs(data)
+logger.info(f"{len(train)} training runs, {len(test)} test runs")
 
 print("Train models including initial epochs in the training set")
 results_full_df, best_full_model = train_target(train, FEATURES, "average epoch energy (kJ)", "full-energy", MODELS)
@@ -41,15 +41,15 @@ y_test = test["average epoch energy (kJ)"]
 y_pred = best_full_model.predict(test[FEATURES])
 epoch_energy_metrics = regression_metrics(y_test, y_pred)
 
-# Energy obtained with the measured number of epochs. This isolates the error of the epoch-energy model; the a priori
-# estimate, which also predicts the number of epochs, is computed in evaluate.py.
+# PRE-E energy: predicted epoch energy times the number of epochs provided by the user. The measured number stands in
+# for an accurate user estimate; see evaluate.py for the comparison with the other methods.
 energy_pred = y_pred * test["measured epochs"]
 energy_metrics = regression_metrics(test["energy (kJ)"], energy_pred)
 
 best_model_name = results_full_df.loc[results_full_df["rmse"].idxmin(), "model_name"]
 print(f"Best model: {best_model_name}")
 print(f"Average epoch energy (kJ): {epoch_energy_metrics}")
-print(f"Energy with measured epochs (kJ): {energy_metrics}")
+print(f"PRE-E energy with user-provided epochs (kJ): {energy_metrics}")
 
 result = permutation_importance(best_full_model, test[FEATURES], y_test, n_repeats=10, random_state=42, n_jobs=2)
 importances = pd.Series(result.importances_mean, index=FEATURES)
@@ -67,7 +67,7 @@ for x, y, metrics, unit, title, file_name in [
         energy_pred,
         energy_metrics,
         "energy (kJ)",
-        "Energy (measured epochs)",
+        "PRE-E energy",
         "method-2-energy-predictions-vs-true-values",
     ),
 ]:
@@ -83,6 +83,6 @@ for x, y, metrics, unit, title, file_name in [
 
 with open(REPORTS_DIR / "energy-estimator-test-set-results.txt", "w", encoding="utf8") as f:
     f.write(f"Best model: {best_model_name}\n")
-    f.write(f"Test set: {len(test)} runs from {test['configuration'].nunique()} held-out configurations\n")
+    f.write(f"Test set: {len(test)} runs\n")
     f.write(f"Average epoch energy (kJ): {epoch_energy_metrics}\n")
-    f.write(f"Energy with measured number of epochs (kJ): {energy_metrics}\n")
+    f.write(f"PRE-E energy with user-provided number of epochs (measured) (kJ): {energy_metrics}\n")

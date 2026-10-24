@@ -1,15 +1,13 @@
 """
 Data loading and splitting shared by the pre-training regression-based estimation (PRE) models.
 
-All features are known before training starts. Runs that share the same feature values are repetitions of the same
-training configuration, so the train/test split and the cross-validation folds hold out whole configurations; otherwise
-the test set would contain repetitions of configurations already seen during training.
+All features are known before training starts. The runs are split at random into a training and a test set.
 """
 
 import re
 
 import pandas as pd
-from sklearn.model_selection import GroupShuffleSplit
+from sklearn.model_selection import train_test_split
 
 from src.data.gpu_specs import get_gpu_specs
 from src.environment import METRICS_DIR, SEED
@@ -39,7 +37,7 @@ def load_pre_dataset() -> pd.DataFrame:
     Returns
     -------
     data : `pd.DataFrame`
-        The PRE dataset. The ``configuration`` column identifies runs with identical features.
+        The PRE dataset.
     """
     data = pd.read_parquet(
         METRICS_DIR / "processed" / "clean-dl-training-energy-consumption-dataset.gzip",
@@ -73,7 +71,6 @@ def load_pre_dataset() -> pd.DataFrame:
     # Targets. Power and energy include both the GPU and the RAM, as the measured energy does.
     training_seconds = data["training duration (h)"] * HOURS_TO_SECONDS
     data["average power (W)"] = data["energy (MJ)"] * MJOULES_TO_JOULES / training_seconds
-    data["average epoch duration (s)"] = training_seconds / data["measured epochs"]
     data["energy (kJ)"] = data["energy (MJ)"] * MJOULES_TO_KJOULES
 
     epoch_energy = epoch_data.groupby("run_id")["total energy (kJ)"]
@@ -81,13 +78,14 @@ def load_pre_dataset() -> pd.DataFrame:
     data["average epoch energy (kJ)"] = data["run_id"].map(epoch_energy.mean())
     data["average stable epoch energy (kJ)"] = data["run_id"].map(stable_epoch_energy.mean())
 
-    data["configuration"] = data[FEATURES].astype(str).agg("|".join, axis=1)
+    # Order the runs by GPU model, as the original training scripts did, so that the random split is the same
+    data = pd.concat([group for _, group in data.groupby("gpu model")])
     return data.reset_index(drop=True)
 
 
-def split_by_configuration(data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def split_runs(data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Split the PRE dataset so that each training configuration is either in the training or in the test set.
+    Split the PRE dataset at random into a training set and a test set with `TEST_SIZE` of the runs.
 
     Parameters
     ----------
@@ -97,8 +95,6 @@ def split_by_configuration(data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFra
     Returns
     -------
     train, test : tuple of `pd.DataFrame`
-        The training and test sets. About `TEST_SIZE` of the configurations go to the test set.
+        The training and test sets.
     """
-    splitter = GroupShuffleSplit(n_splits=1, test_size=TEST_SIZE, random_state=SEED)
-    train_index, test_index = next(splitter.split(data, groups=data["configuration"]))
-    return data.iloc[train_index], data.iloc[test_index]
+    return train_test_split(data, test_size=TEST_SIZE, random_state=SEED)

@@ -292,7 +292,7 @@ ggsave(
 energy_estimation_comparison <- read_parquet("data/analysis/processed/energy-estimation-results.gzip")
 ```
 
-Error metrics on the held-out test configurations. `R2` is the coefficient of determination (1 - SSE/SST), which penalizes bias; `r2` is the squared Pearson correlation, which does not; `bias` is the mean signed error (kJ).
+Error metrics on the test runs. `R2` is the coefficient of determination (1 - SSE/SST), which penalizes bias; `r2` is the squared Pearson correlation, which does not; `bias` is the mean signed error (kJ).
 ```{r energy-estimation-metrics}
 estimation_metrics <- function(true, pred) {
     errors <- pred - true
@@ -311,9 +311,7 @@ estimation_methods <- c(
     "STEP-P" = "estimated total energy (kJ) (STEP-P)",
     "STEP-E" = "estimated total energy (kJ) (STEP-E)",
     "PRE-P" = "PRE-P energy (kJ)",
-    "PRE-E" = "PRE-E energy (kJ)",
-    "PRE-P (measured duration)" = "PRE-P energy with measured duration (kJ)",
-    "PRE-E (measured epochs)" = "PRE-E energy with measured epochs (kJ)"
+    "PRE-E" = "PRE-E energy (kJ)"
 )
 t(sapply(estimation_methods, function(col) {
     estimation_metrics(energy_estimation_comparison$`true energy (kJ)`, energy_estimation_comparison[[col]])
@@ -324,7 +322,7 @@ t(sapply(estimation_methods, function(col) {
 annotation_size <- 5.5 / ggplot2::.pt
 
 # Common axis range for all panels
-axis_max <- 1.05 * max(energy_estimation_comparison[c("true energy (kJ)", estimation_methods[1:6])])
+axis_max <- 1.05 * max(energy_estimation_comparison[c("true energy (kJ)", estimation_methods)])
 
 identity_color <- "gray70"
 

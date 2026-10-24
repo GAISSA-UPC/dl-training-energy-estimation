@@ -1,24 +1,10 @@
 R2 = 1 - SSE/SST; r2 = squared Pearson correlation; bias = mean signed error (kJ)
-Only runs with STEP estimates (window size 5, stabilizing epoch 10).
+Test set: 366 runs with STEP estimates (window size 5, stabilizing epoch 10) out of 409 test runs
 
-Held-out test set: 351 runs from 16 configurations (393 runs before matching STEP estimates)
-                              RMSE      MAE     R2     r2     bias
-GA                         50.8887  32.1193 0.9800 0.9842   0.3427
-MLCO2                      55.8801  41.7549 0.9759 0.9922  41.7549
-STEP-P                      5.8163   4.3438 0.9997 0.9999   0.9834
-STEP-E                      9.0196   3.6805 0.9994 0.9994  -0.7640
-PRE-P                     228.8869 110.6736 0.5950 0.8663  73.4019
-PRE-E                     272.4790 160.9368 0.4260 0.5783 -51.4678
-PRE-P (measured duration)  33.5465  15.4221 0.9913 0.9956   5.5058
-PRE-E (measured epochs)   257.3461 158.4326 0.4880 0.6779 -53.9245
-
-Out-of-fold (5 folds grouped by configuration, hyperparameters from the training split): 1225 runs from 53 configurations
-                              RMSE      MAE     R2     r2     bias
-GA                        177.7152  69.2111 0.6510 0.8119  18.0112
-MLCO2                     187.6853 104.5026 0.6108 0.8899 104.5026
-STEP-P                      7.3429   4.2509 0.9994 0.9995   1.1252
-STEP-E                      7.8751   3.7752 0.9993 0.9994   1.0724
-PRE-P                     215.8867 114.5595 0.4850 0.5560  -6.5576
-PRE-E                     228.8770 164.1082 0.4212 0.4245 -17.0419
-PRE-P (measured duration)  49.7700  23.0171 0.9726 0.9738  -1.4548
-PRE-E (measured epochs)   218.5137 159.4541 0.4724 0.4792 -20.4853
+           RMSE     MAE     R2     r2    bias
+GA     160.0771 63.2678 0.7237 0.8355 12.2518
+MLCO2  175.8397 98.1058 0.6666 0.8972 98.1058
+STEP-P   5.5189  4.1267 0.9997 0.9998  1.4352
+STEP-E   6.3355  3.3244 0.9996 0.9997  1.2716
+PRE-P   17.4215  6.8825 0.9967 0.9968 -0.8336
+PRE-E   50.5669 20.8301 0.9724 0.9727 -3.5652

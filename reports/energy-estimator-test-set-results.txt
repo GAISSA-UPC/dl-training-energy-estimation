@@ -1,4 +1,4 @@
-Best model: svm-regression-full-energy-estimator
-Test set: 393 runs from 16 held-out configurations
-Average epoch energy (kJ): {'RMSE': 3.235690753565529, 'MAE': 1.8505200823800938, 'R2': 0.5385000941804519, 'r2': 0.8663178923975583, 'bias': -0.9869698942690165}
-Energy with measured number of epochs (kJ): {'RMSE': 264.5766011043598, 'MAE': 163.13723093588118, 'R2': 0.4818834214633537, 'r2': 0.6492471480640131, 'bias': -55.53939802163998}
+Best model: kernel-ridge-regression-full-energy-estimator
+Test set: 409 runs
+Average epoch energy (kJ): {'RMSE': 0.720637178434901, 'MAE': 0.2826791151523319, 'R2': 0.9667471974231624, 'r2': 0.9669735451138199, 'bias': -0.031218342030510795}
+PRE-E energy with user-provided number of epochs (measured) (kJ): {'RMSE': 51.18497840279186, 'MAE': 20.739467369483027, 'R2': 0.9724369058600626, 'r2': 0.972545556738447, 'bias': -2.9843097791036555}

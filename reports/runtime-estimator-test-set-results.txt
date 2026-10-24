@@ -1,3 +1,0 @@
-Test set: 393 runs from 16 held-out configurations
-measured epochs: best model ridge-regression-epochs-estimator; test set {'RMSE': 15.817852503481133, 'MAE': 11.292793935971607, 'R2': 0.6819457684827152, 'r2': 0.6859606829049757, 'bias': -0.950066054297463}
-average epoch duration (s): best model svm-regression-epoch-duration-estimator; test set {'RMSE': 7.725215177058346, 'MAE': 3.7494157532306978, 'R2': 0.8365833538510595, 'r2': 0.946603372314934, 'bias': 3.0775932774040746}
